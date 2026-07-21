@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"/mnt/c/Users/james/source/repos/Compiler1/build/cmake_install.cmake",
+		"/mnt/c/Users/james/source/repos/Compiler1/build/Compiler1/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
