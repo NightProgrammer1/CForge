@@ -66,6 +66,32 @@ public:
                 .ident = identifier
             };
 
+            if (Match(TokenType::open_paren)) {
+
+                auto expr = std::make_unique<NodeExpr>();
+
+                NodeExprCall funcCall;
+                funcCall.name = identifier;
+
+                if (Match(TokenType::close_paren))
+                {
+                    expr->var = std::move(funcCall);
+                    return expr;
+                }
+                if (auto node_expr = ParseBoolean())
+                {
+                    funcCall.expr = std::move(node_expr);
+                    expr->var = std::move(funcCall);
+                }
+                else
+                {
+                    std::cerr << "Invalid (Function call) expression" << std::endl;
+                    exit(EXIT_FAILURE);
+                }
+
+                return expr;
+            }
+
             if (Match(TokenType::increment))
             {
                 auto unary = std::make_unique<NodeExpr>();
@@ -83,7 +109,7 @@ public:
 
         if (Match(TokenType::open_paren))
         {
-            auto expr = ParseBoolean(); // Can parse math, comparisons, AND logical operations
+            auto expr = ParseBoolean();
             Consume(TokenType::close_paren);
             return expr;
         }
@@ -250,7 +276,6 @@ public:
         auto block = NodeBlock{};
 
 
-        // 2. Loop until we see '}' without consuming it in the condition
         while (PeekToken().has_value() && PeekToken()->type != TokenType::close_brace)
         {
             if (auto statement = ParseStat())
@@ -264,16 +289,16 @@ public:
             }
         }
 
-        // 3. Consume closing brace
         Consume(TokenType::close_brace);
 
         return block;
     }
     std::unique_ptr<NodeStatement> ParseStat()
     {
-        NodeStatementExit exit_node;
         if (Match(TokenType::exit))
         {
+            NodeStatementExit exit_node;
+
             if (auto node_expr = ParseBoolean())
             {
                 exit_node.expr = std::move(node_expr);
@@ -283,7 +308,6 @@ public:
                 std::cerr << "Invalid (exit) expression" << std::endl;
                 exit(EXIT_FAILURE);
             }
-            if (TryConsume(TokenType::close_paren)) { Advance(); };
             Consume(TokenType::semicolon);
 
             return std::make_unique <NodeStatement>(NodeStatement{ .stat = std::move(exit_node) });
@@ -349,14 +373,26 @@ public:
 		{
 			return ParseWhile();
 		}
-        else  if (Match(TokenType::open_brace))
+        else if (Match(TokenType::open_brace))
         {
 
             auto block = ParseBlock();
             return std::make_unique< NodeStatement>(NodeStatement{.stat = std::move(block)});
         }
+        else if (Match(TokenType::_return))
+        {
+            NodeStatementReturn ret;
+
+            
+            ret.expr = std::move(ParseExpr());
+
+            Consume(TokenType::semicolon);
+
+            return std::make_unique <NodeStatement>(NodeStatement{ .stat = std::move(ret) });
 
 
+        }
+        
         if (auto expr = ParseBoolean())
         {
             Consume(TokenType::semicolon);
@@ -370,30 +406,76 @@ public:
         }
         return {};
     }
+
+
+    std::vector<Parameter> ParseParameter()
+    {
+        Consume(TokenType::open_paren);
+        
+        auto p = PeekToken();
+        std::vector<Parameter> parameterList;
+
+        while (p && p.value().type != TokenType::close_paren)
+        {
+            if (Match(TokenType::_int))
+            {
+                Parameter par = { VarType::Int, GetToken() };
+                parameterList.push_back(par);
+            }
+
+            p = PeekToken();
+        }
+
+        Consume(TokenType::close_paren);
+        return parameterList;
+    }
+    std::unique_ptr<NodeFunction> ParseFunctions()
+    {
+        NodeFunction decl;
+
+        if (GetToken().type == TokenType::_int)
+        {
+            decl.retType = VarType::Int;
+
+        }
+        decl.name = Token{TokenType::_identifier, GetToken().value};
+        decl.parameter = ParseParameter();
+        if (Match(TokenType::open_brace)) {
+            decl.body = ParseBlock();
+        }
+        return std::make_unique<NodeFunction>(std::move(decl));
+    }
     std::optional<NodeProg> ParseProgram()
     {
         NodeProg program;
         std::vector<std::unique_ptr<NodeStatement>> stats;
-        while (PeekToken().has_value())
-        {
-            if (auto statement = ParseStat())
-            {
-                stats.emplace_back(std::move(statement));
-            }
-            else
-            {
-                std::cerr << "Invalid statement" << std::endl;
-                exit(EXIT_FAILURE);
-            }
-        }
 
-        program.root.statements = std::move(stats);
+        auto p = PeekToken();
+        while(p){
+            if (TryMatch(TokenType::_int))
+            {
+                if (TryMatch(TokenType::_int) &&
+                    PeekToken(1) && PeekToken(1)->type == TokenType::_identifier &&
+                    PeekToken(2) && PeekToken(2)->type == TokenType::open_paren)
+                {
+                    program.functions.push_back(ParseFunctions());
+                }
+                else
+                {
+                    std::cerr << "Unexpected top-level token: " << PeekToken()->value << std::endl;
+                    exit(EXIT_FAILURE);
+                }
+
+            }
+            p = PeekToken();
+        }
+       
+
         return std::move(program);
     }
     
     std::unique_ptr<NodeStatement> ParseIf()
     {
-        Consume(TokenType::open_paren);
 
         NodeStatementIf _if;
         if (auto node_expr = ParseBoolean())
@@ -405,7 +487,6 @@ public:
             std::cerr << "Invalid (if) expression" << std::endl;
             exit(EXIT_FAILURE);
         }
-
 
 
         Consume(TokenType::open_brace);

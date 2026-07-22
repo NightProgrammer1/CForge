@@ -10,7 +10,7 @@ public:
 	void Analyze()
 	{
 		symbols.EnterScope(); // Global scope
-		AnalyzeBlock(ast.root, false);
+		AnalyzeProg(ast);
 		symbols.ExitScope();
 	}
 
@@ -27,6 +27,9 @@ private:
 			}
 			Type operator()(const NodeExprBoolLit&) {
 				return Type::Bool;
+			}
+			Type operator()(const NodeExprCall&) {
+				return Type::Int;
 			}
 			Type operator()(const NodeExprIndent& stat) {
 				auto symbol = analyzer->symbols.LookupVariable(stat.ident.value);
@@ -130,12 +133,19 @@ private:
 			{
 
 			}
-
+			void operator()(const NodeStatementReturn& _ret)
+			{
+			}
 		};
 		Visitor visitor{ this };
 		std::visit(visitor, statement.stat);
 	}
+	void AnalyzeFunction(NodeFunction& func)
+	{
+		AnalyzeBlock(func.body);
+		func.stack_size = symbols.stackOffset;
 
+	}
 	void AnalyzeBlock(const NodeBlock& block, bool createScope = true) {
 		if (createScope) symbols.EnterScope();
 
@@ -144,6 +154,14 @@ private:
 		}
 
 		if (createScope) symbols.ExitScope();
+	}
+
+	void AnalyzeProg(const NodeProg& prog)
+	{
+		for (auto& func : prog.functions)
+		{
+			AnalyzeFunction(*func);
+		}
 	}
 	SymbolTable symbols;
 	const NodeProg& ast;

@@ -8,6 +8,7 @@
 enum class TokenType
 {
 	exit,
+    _return,
 	_identifier,
 	semicolon,
 	int_literal,
@@ -37,7 +38,11 @@ enum class TokenType
     equal_equal,
     _or,
     _and,
-    _not
+    _not,
+
+
+
+    func
 };
 struct Token
 {
@@ -84,6 +89,7 @@ public:
                 if (identifier == "exit")
                 {
                     tokens.push_back({ TokenType::exit, identifier });
+
                 }
                 else if (identifier == "int")
                 {
@@ -92,27 +98,38 @@ public:
                 else if (identifier == "if")
                 {
                     tokens.push_back({ TokenType::_if, identifier });
+
                 }
                 else if (identifier == "else")
                 {
                     tokens.push_back({ TokenType::_else, identifier });
+
                 }
                 else if (identifier == "bool")
                 {
                     tokens.push_back({ TokenType::_bool, identifier });
+
                 }
                 else if (identifier == "true")
                 {
                     tokens.push_back({ TokenType::true_literal, identifier });
+
                 }
                 else if (identifier == "false")
                 {
                     tokens.push_back({ TokenType::false_literal, identifier });
+
                 }
 				else if (identifier == "while")
 				{
 					tokens.push_back({ TokenType::_while, identifier });
+
 				}
+                else if (identifier == "return")
+                {
+                    tokens.push_back({ TokenType::_return, identifier });
+
+                }
                 else
                 {
                     tokens.push_back({ TokenType::_identifier, identifier });

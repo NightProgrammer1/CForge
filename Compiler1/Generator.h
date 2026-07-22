@@ -2,6 +2,7 @@
 #include "parser.h"
 #include <unordered_map>
 #include <sstream>
+#include <algorithm>
 
 
 
@@ -26,7 +27,6 @@ public:
 			{
 
 				generator->_output << "    mov rax, " << expr.int_lit.value << "\n";
-				generator->push("rax");
 			}
 			void operator()(const NodeExprIndent& stat)
 			{
@@ -36,9 +36,12 @@ public:
 					if (generator->scopes[i].variables.contains(stat.ident.value))
 					{
 						const auto& var = generator->scopes[i].variables.at(stat.ident.value);
-						size_t offset = (generator->_stackSize - 1 - var.stack_location) * 8;
+						size_t offset = var.stack_location * 8;
 
-						generator->push("QWORD [rsp + " + std::to_string(offset) + "]");
+						generator->_output << "    mov rax, QWORD [rbp - "
+							<< std::to_string(offset) << "]\n";
+
+						generator->push("rax");
 						found = true;
 						break;
 					}
@@ -227,6 +230,23 @@ public:
 
 				}
 			}
+			void operator()(const NodeExprCall& expr) 
+			{
+				auto find = std::find_if(
+					generator->root.functions.begin(),
+					generator->root.functions.end(),
+					[&](const std::unique_ptr<NodeFunction>& func) {
+						return func->name.value == expr.name.value;
+					}
+				);
+
+				if (find == generator->root.functions.end()) {
+					std::cerr << "Undeclared function: " << expr.name.value << std::endl;
+					exit(EXIT_FAILURE);
+				}
+
+				generator->_output << "    call " << expr.name.value << "\n";
+			}
 			Generator* generator;
 		};
 		Visitor visit(this);
@@ -240,9 +260,11 @@ public:
 			Generator* generator;
 			void operator()(const NodeStatementExit& stat)
 			{
-				generator->GenerateExpression(*stat.expr);
+				generator->GenerateExpression(*(stat.expr));
+
+				generator->_output << "    mov rdi, rax\n";
+
 				generator->_output << "    mov rax, 60\n";
-				generator->pop("rdi");
 				generator->_output << "    syscall\n";
 			}
 			void operator()(const NodeStatementVar& stat)
@@ -255,13 +277,27 @@ public:
 					exit(EXIT_FAILURE);
 				}
 				
-				generator->scopes.back().variables.insert({stat.ident.value, Var{generator->_stackSize}});
+				// 2. Register variable in current scope with a unique stack slot index
+	// (e.g. 1st var -> slot 1, 2nd var -> slot 2)
+				size_t var_slot = ++generator->_varCount;
+				generator->scopes.back().variables.insert({ stat.ident.value, Var{.stack_location = var_slot} });
+
+				// 3. Generate the initializer expression (leaves result on expression stack)
 				generator->GenerateExpression(*(stat.expr));
+
+				// 4. Pop expression result off stack into RAX
+				//generator->pop("rax");
+
+				// 5. Compute RBP offset (slot 1 -> [rbp - 8], slot 2 -> [rbp - 16])
+				size_t offset = var_slot * 8;
+				// 6. Store RAX into variable's permanent stack slot!
+				generator->_output << "    mov QWORD [rbp - " << std::to_string(offset) << "], rax\n";
 
 			}
 			void operator()(const NodeBlock& block)
 			{
 				generator->GenerateBlock(block);
+
 			}
 			void operator()(const NodeStatementIf& _if)
 			{
@@ -284,7 +320,14 @@ public:
 			void operator()(const NodeStatementExpr& stat)
 			{
 				generator->GenerateExpression(*stat.expr);
-				generator->pop("rax");
+			}
+			void operator()(const NodeStatementReturn& _ret)
+			{
+				generator->GenerateExpression(*_ret.expr);
+
+				generator->_output << "    mov rsp, rbp\n";
+				generator->pop("rbp");
+				generator->_output << "    ret\n";
 			}
 		};
 		Visitor visit(this);
@@ -293,14 +336,52 @@ public:
 	std::string GenerateProgram()
 	{
 		_output << "global _start\n_start:\n";
-		GenerateBlock(root.root, false);
+		_output << "    call main\n";
+		_output << "    mov rdi, rax\n";
 		_output << "    mov rax, 60\n";
-		_output << "    mov rdi, 0\n";
-		_output << "    syscall";
+		_output << "    syscall\n";
+		GenerateFunction(root);
+		
 
 		return _output.str();
 	}
 
+	void GenerateFunction(const NodeProg& prog)
+	{
+		auto find = std::find_if(
+			prog.functions.rbegin(),
+			prog.functions.rend(),
+			[&](const std::unique_ptr<NodeFunction>& func) {
+				return func->name.value == "main";
+			}
+		);
+		if (find == prog.functions.rend())
+		{
+			std::cerr << "Missing main entry point" << "\n";
+			exit(EXIT_FAILURE);
+		}
+		for (auto& func : prog.functions)
+		{
+			_varCount = 0;
+			_output << func->name.value << ":\n";
+
+			// 1. Prologue
+			push("rbp");
+			_output << "    mov rbp, rsp\n";
+
+			if (func->stack_size > 0) {
+				_output << "    sub rsp, " << std::to_string(func->stack_size) << "\n";
+			}
+
+			// 2. Generate function body statements
+			GenerateBlock(func->body, true);
+
+			// 3. Trailing Epilogue (Safety net for void functions or falling off the end)
+			_output << "    mov rsp, rbp\n";
+			pop("rbp");
+			_output << "    ret\n";
+		}
+	}
 	void GenerateBlock(const NodeBlock& block, bool createScope = true)
 	{
 		if (createScope)
@@ -373,14 +454,6 @@ private:
 
 	void ExitScope()
 	{
-		auto oldSize = scopes.back().stackSizeAtStart;
-
-		while (_stackSize > oldSize)
-		{
-			_output << "    add rsp, 8\n";
-			_stackSize--;
-		}
-
 		scopes.pop_back();
 	}
 	void push(const std::string& reg)
@@ -391,10 +464,7 @@ private:
 
 	void pop(const std::string& reg)
 	{
-		if (_stackSize > 0) {
-			_output << "    pop " << reg << "\n";
-			_stackSize--;
-		}
+		_output << "    pop " << reg << "\n";
 	}
 
 
@@ -420,4 +490,8 @@ private:
 	size_t _labelCount = 0;
 
 	size_t _stackSize = 0;
+
+	int _currentScope = 0;
+
+	size_t _varCount = 0;
 };

@@ -19,8 +19,11 @@ struct Symbol {
 class SymbolTable
 {
 public:
+    size_t stackOffset = 0; //variable offsets relative to rbp
+
     void EnterScope() {
         scopes.emplace_back();
+        stackOffset = 0;
     }
 
     void ExitScope() {
@@ -34,8 +37,8 @@ public:
         if (scopes.back().contains(name)) {
             return false;
         }
-        
-        scopes.back()[name] = Symbol{ name, type, 0 };
+        stackOffset += 8;
+        scopes.back()[name] = Symbol{ name, type, stackOffset };
         return true;
     }
 
@@ -52,4 +55,5 @@ public:
 
 private:
     std::vector<std::unordered_map<std::string, Symbol>> scopes;
+
 };

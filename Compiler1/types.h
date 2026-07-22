@@ -40,6 +40,11 @@ struct NodeExprIndent
     Token ident;
 };
 
+struct NodeExprCall
+{
+    std::unique_ptr<NodeExpr> expr;
+    Token name;
+};
 
 struct NodeExpr
 {
@@ -49,7 +54,8 @@ struct NodeExpr
         NodeExprBinary,
         NodeExprBoolLit,
         NodeExprCompare,
-        NodeExprUnary
+        NodeExprUnary,
+        NodeExprCall
     > var;
 };
 
@@ -74,10 +80,13 @@ struct NodeStatementVar
 };
 
 struct NodeStatement;
+struct NodeFunction;
+
 
 struct NodeBlock
 {
     std::vector<std::unique_ptr<NodeStatement>> statements;
+
 };
 
 struct NodeStatementIf
@@ -97,6 +106,14 @@ struct NodeStatementExpr
 {
     std::unique_ptr<NodeExpr> expr;
 };
+\
+struct NodeStatementReturn
+{
+    std::unique_ptr<NodeExpr> expr;
+
+};
+
+
 struct NodeStatement
 {
     std::variant<
@@ -105,12 +122,28 @@ struct NodeStatement
         NodeBlock,
         NodeStatementIf,
         NodeStatementWhile,
-        NodeStatementExpr
+        NodeStatementExpr,
+        NodeStatementReturn
     > stat;
 };
 
 
+struct Parameter
+{
+    VarType type;
+    Token ident;
+};
+struct NodeFunction
+{
+    Token name;
+    std::vector<Parameter> parameter;
+    VarType retType;
+    NodeBlock body;
+
+    size_t stack_size = 0;
+};
+
 struct NodeProg
 {
-    NodeBlock root;
+    std::vector<std::unique_ptr<NodeFunction>> functions;
 };
