@@ -3,12 +3,8 @@
 #include <vector>
 #include <optional>
 #include <unordered_map>
+#include "parser.h"
 
-enum class Type {
-    Int,
-    Bool,
-    Void
-};
 
 struct Symbol {
     std::string name;
@@ -23,7 +19,6 @@ public:
 
     void EnterScope() {
         scopes.emplace_back();
-        stackOffset = 0;
     }
 
     void ExitScope() {

@@ -99,7 +99,7 @@ private:
 			void operator()(const NodeStatementVar& stat)
 			{
 				auto exprType = analyzer->AnalyzeExpression(*stat.expr);
-				Type declaredType = (stat.type == VarType::Bool) ? Type::Bool : Type::Int;
+				Type declaredType = (stat.type == Type::Bool) ? Type::Bool : Type::Int;
 
 				if (exprType != declaredType) {
 					std::cerr << "Type Error: Cannot assign expression of type "
@@ -116,6 +116,7 @@ private:
 			}
 			void operator()(const NodeBlock& block)
 			{
+				analyzer->AnalyzeBlock(block);
 			}
 			void operator()(const NodeStatementIf& _if)
 			{
@@ -142,9 +143,23 @@ private:
 	}
 	void AnalyzeFunction(NodeFunction& func)
 	{
-		AnalyzeBlock(func.body);
-		func.stack_size = symbols.stackOffset;
+		symbols.stackOffset = 0;
 
+		for (const auto& var : func.parameters)
+		{
+			symbols.DeclareVariable(var.ident.value, var.type);
+		}
+
+		symbols.stackOffset;
+		AnalyzeBlock(func.body);
+
+		// Align total stack size to 16 bytes
+		size_t total_bytes = symbols.stackOffset;
+		if (total_bytes % 16 != 0) {
+			total_bytes += (16 - (total_bytes % 16));
+		}
+
+		func.stack_size = total_bytes;
 	}
 	void AnalyzeBlock(const NodeBlock& block, bool createScope = true) {
 		if (createScope) symbols.EnterScope();

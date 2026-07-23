@@ -42,7 +42,7 @@ struct NodeExprIndent
 
 struct NodeExprCall
 {
-    std::unique_ptr<NodeExpr> expr;
+    std::vector<std::unique_ptr<NodeExpr>> args;
     Token name;
 };
 
@@ -66,15 +66,15 @@ struct NodeStatementExit
 };
 
 
-enum class VarType
-{
+enum class Type {
     Int,
-    Bool
+    Bool,
+    Void
 };
 
 struct NodeStatementVar
 {
-    VarType type;
+    Type type;
     Token ident;
     std::unique_ptr<NodeExpr> expr;
 };
@@ -130,14 +130,14 @@ struct NodeStatement
 
 struct Parameter
 {
-    VarType type;
+    Type type;
     Token ident;
 };
 struct NodeFunction
 {
     Token name;
-    std::vector<Parameter> parameter;
-    VarType retType;
+    std::vector<Parameter> parameters;
+    Type retType;
     NodeBlock body;
 
     size_t stack_size = 0;

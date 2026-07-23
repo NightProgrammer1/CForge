@@ -3,7 +3,7 @@
 #include <unordered_map>
 #include <sstream>
 #include <algorithm>
-
+#include <sstream>
 
 
 
@@ -230,22 +230,57 @@ public:
 
 				}
 			}
-			void operator()(const NodeExprCall& expr) 
+			void operator()(const NodeExprCall& call) 
 			{
-				auto find = std::find_if(
+				auto function = std::find_if(
 					generator->root.functions.begin(),
 					generator->root.functions.end(),
 					[&](const std::unique_ptr<NodeFunction>& func) {
-						return func->name.value == expr.name.value;
+						return func->name.value == call.name.value;
 					}
 				);
 
-				if (find == generator->root.functions.end()) {
-					std::cerr << "Undeclared function: " << expr.name.value << std::endl;
+				if (function == generator->root.functions.end()) {
+					std::cerr << "Undeclared function: " << call.name.value << std::endl;
 					exit(EXIT_FAILURE);
 				}
 
-				generator->_output << "    call " << expr.name.value << "\n";
+				if (call.args.size() != (*function)->parameters.size())
+				{
+					std::stringstream paramsDef;
+					for (auto& parms : (*function)->parameters)
+					{
+						switch (parms.type)
+						{
+						case Type::Int:
+							paramsDef << "int";
+							break;
+						default:
+							break;
+						}
+						paramsDef <<  " " << parms.ident.value << ", ";
+					}
+
+					std::string def = paramsDef.str();
+					if (def.length() >= 2) {
+						def.erase(def.length() - 2); // Strips trailing ", "
+					}
+
+					std::cerr << "The number of parameters does not match function definition: "
+						<< call.name.value << "(" << def << ")" << std::endl;
+					exit(EXIT_FAILURE);
+				}
+				for (size_t i = 0; i < call.args.size(); ++i)
+				{
+					generator->GenerateExpression(*(call.args[i]));
+
+					if (i < generator->PARAM_REGS.size())
+					{
+						generator->_output << "    mov " << generator->PARAM_REGS[i] << ", rax\n";
+					}
+
+				}
+				generator->_output << "    call " << call.name.value << "\n";
 			}
 			Generator* generator;
 		};
@@ -277,20 +312,13 @@ public:
 					exit(EXIT_FAILURE);
 				}
 				
-				// 2. Register variable in current scope with a unique stack slot index
-	// (e.g. 1st var -> slot 1, 2nd var -> slot 2)
 				size_t var_slot = ++generator->_varCount;
 				generator->scopes.back().variables.insert({ stat.ident.value, Var{.stack_location = var_slot} });
 
-				// 3. Generate the initializer expression (leaves result on expression stack)
 				generator->GenerateExpression(*(stat.expr));
 
-				// 4. Pop expression result off stack into RAX
-				//generator->pop("rax");
 
-				// 5. Compute RBP offset (slot 1 -> [rbp - 8], slot 2 -> [rbp - 16])
 				size_t offset = var_slot * 8;
-				// 6. Store RAX into variable's permanent stack slot!
 				generator->_output << "    mov QWORD [rbp - " << std::to_string(offset) << "], rax\n";
 
 			}
@@ -372,7 +400,19 @@ public:
 			if (func->stack_size > 0) {
 				_output << "    sub rsp, " << std::to_string(func->stack_size) << "\n";
 			}
+			
+			for (size_t i = 0; i < func->parameters.size(); ++i)
+			{
+				const auto& param = func->parameters[i];
+				size_t slot = ++_varCount; // Slot 1, 2, ...
+				size_t offset = slot * 8;
 
+				scopes.back().variables.insert({ param.ident.value, Var{.stack_location = slot} });
+
+				// Emit copy from ABI register to stack frame
+				_output << "    mov QWORD [rbp - " << std::to_string(offset)
+					<< "], " << PARAM_REGS[i] << "\n";
+			}
 			// 2. Generate function body statements
 			GenerateBlock(func->body, true);
 
@@ -494,4 +534,7 @@ private:
 	int _currentScope = 0;
 
 	size_t _varCount = 0;
+
+
+	const std::vector<std::string> PARAM_REGS = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
 };

@@ -11,6 +11,7 @@ enum class TokenType
     _return,
 	_identifier,
 	semicolon,
+    comma,
 	int_literal,
     open_paren,
     close_paren,
@@ -155,7 +156,11 @@ public:
                 _currentIndex++;
 
             }
-
+            else if (c == ',')
+            {
+                tokens.push_back({ TokenType::comma, "," });
+                _currentIndex++;
+            }
             else if (c == '(')
             {
                 tokens.push_back({ TokenType::open_paren, "(" });

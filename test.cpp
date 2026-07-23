@@ -1,15 +1,16 @@
-int func()
+
+
+
+int add(int a, int b, int c, int d, int e)
 {
-	int a = 30;
-	int b = 20;
-	if (a > b) {
-		return 2;
-	}
+	int answer = a + b + c + d + e;
+
+	return answer;
 }
 
 int main()
 {
-	int a = func();
+	int a = add(1, 2, 3, 4, 5); 
 
 	exit(a);
 }

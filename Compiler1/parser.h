@@ -78,17 +78,24 @@ public:
                     expr->var = std::move(funcCall);
                     return expr;
                 }
-                if (auto node_expr = ParseBoolean())
-                {
-                    funcCall.expr = std::move(node_expr);
-                    expr->var = std::move(funcCall);
-                }
-                else
-                {
-                    std::cerr << "Invalid (Function call) expression" << std::endl;
-                    exit(EXIT_FAILURE);
-                }
 
+            
+                while (PeekToken() && PeekToken().value().type != TokenType::close_paren) {
+                    if (auto node_expr = ParseBoolean())
+                    {
+                        funcCall.args.push_back(std::move(node_expr));
+                    }
+                    else
+                    {
+                        std::cerr << "Invalid (Function call) expression" << std::endl;
+                        exit(EXIT_FAILURE);
+                    }
+                    if(TryMatch(TokenType::comma)) 
+                            Consume(TokenType::comma);
+                }
+                expr->var = std::move(funcCall);
+
+                Consume(TokenType::close_paren);
                 return expr;
             }
 
@@ -346,7 +353,7 @@ public:
             }
 
             auto statement_var = NodeStatementVar{ .ident = GetToken()};
-            statement_var.type = VarType::Bool;
+            statement_var.type = Type::Bool;
 
             Consume(TokenType::equal);
 
@@ -419,9 +426,21 @@ public:
         {
             if (Match(TokenType::_int))
             {
-                Parameter par = { VarType::Int, GetToken() };
+                Parameter par = { Type::Int, GetToken() };
                 parameterList.push_back(par);
             }
+
+            if (!TryMatch(TokenType::comma))
+            {
+                if(!TryMatch(TokenType::close_paren))
+                {
+                    std::cerr << "Invalid function parameters list\n";
+                    exit(EXIT_FAILURE);
+                }
+                break;
+
+            }
+            Consume(TokenType::comma);
 
             p = PeekToken();
         }
@@ -435,11 +454,11 @@ public:
 
         if (GetToken().type == TokenType::_int)
         {
-            decl.retType = VarType::Int;
+            decl.retType = Type::Int;
 
         }
         decl.name = Token{TokenType::_identifier, GetToken().value};
-        decl.parameter = ParseParameter();
+        decl.parameters = ParseParameter();
         if (Match(TokenType::open_brace)) {
             decl.body = ParseBlock();
         }

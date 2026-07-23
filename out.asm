@@ -4,40 +4,65 @@ _start:
     mov rdi, rax
     mov rax, 60
     syscall
-func:
+add:
     push rbp
     mov rbp, rsp
-    sub rsp, 16
-    mov rax, 30
-    mov QWORD [rbp - 8], rax
-    mov rax, 20
-    mov QWORD [rbp - 16], rax
+    sub rsp, 48
+    mov QWORD [rbp - 8], rdi
+    mov QWORD [rbp - 16], rsi
+    mov QWORD [rbp - 24], rdx
+    mov QWORD [rbp - 32], rcx
+    mov QWORD [rbp - 40], r8
     mov rax, QWORD [rbp - 8]
     push rax
     mov rax, QWORD [rbp - 16]
     push rax
     pop rdi
     pop rax
-    cmp rax, rdi
-    setg al
-    movzx rax, al
+    add rax, rdi
     push rax
+    mov rax, QWORD [rbp - 24]
+    push rax
+    pop rdi
     pop rax
-    test rax, rax
-    jz ifend0
-    mov rax, 2
+    add rax, rdi
+    push rax
+    mov rax, QWORD [rbp - 32]
+    push rax
+    pop rdi
+    pop rax
+    add rax, rdi
+    push rax
+    mov rax, QWORD [rbp - 40]
+    push rax
+    pop rdi
+    pop rax
+    add rax, rdi
+    push rax
+    mov QWORD [rbp - 48], rax
+    mov rax, QWORD [rbp - 48]
+    push rax
     mov rsp, rbp
     pop rbp
     ret
-    ifend0:
     mov rsp, rbp
     pop rbp
     ret
 main:
     push rbp
     mov rbp, rsp
-    sub rsp, 8
-    call func
+    sub rsp, 16
+    mov rax, 1
+    mov rdi, rax
+    mov rax, 2
+    mov rsi, rax
+    mov rax, 3
+    mov rdx, rax
+    mov rax, 4
+    mov rcx, rax
+    mov rax, 5
+    mov r8, rax
+    call add
     mov QWORD [rbp - 8], rax
     mov rax, QWORD [rbp - 8]
     push rax
