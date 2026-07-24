@@ -1,16 +1,16 @@
+int isEven(int n);
 
-
-
-int add(int a, int b, int c, int d, int e)
+int isOdd(int n) 
 {
-	int answer = a + b + c + d + e;
-
-	return answer;
+    if (n == 0) { return 0; }
+    return isEven(n - 1);
 }
 
-int main()
-{
-	int a = add(1, 2, 3, 4, 5); 
+int isEven(int n) {
+    if (n == 0) { return 1; }
+    return isOdd(n - 1);
+}
 
-	exit(a);
+int main() {
+    return isEven(7);
 }

@@ -6,7 +6,7 @@
 class SemanticAnalyzer
 {
 public:
-	SemanticAnalyzer(const NodeProg& program) : ast(program) {}
+	SemanticAnalyzer(NodeProg& program) : ast(program) {}
 	void Analyze()
 	{
 		symbols.EnterScope(); // Global scope
@@ -28,8 +28,20 @@ private:
 			Type operator()(const NodeExprBoolLit&) {
 				return Type::Bool;
 			}
-			Type operator()(const NodeExprCall&) {
-				return Type::Int;
+			Type operator()(const NodeExprCall& call) {
+				auto funcSymbol = analyzer->symbols.LookupFunction(call.name.value);
+
+				if (!funcSymbol.has_value()) {
+					std::cerr << "Semantic Error: Call to undeclared function '"
+						<< call.name.value << "'\n";
+					exit(EXIT_FAILURE);
+				}
+
+				if (call.args.size() != funcSymbol->paramTypes.size()) {
+					std::cerr << "Semantic Error: Incorrect argument count for function '"
+						<< call.name.value << "'\n";
+					exit(EXIT_FAILURE);
+				}
 			}
 			Type operator()(const NodeExprIndent& stat) {
 				auto symbol = analyzer->symbols.LookupVariable(stat.ident.value);
@@ -120,6 +132,17 @@ private:
 			}
 			void operator()(const NodeStatementIf& _if)
 			{
+				auto condType = analyzer->AnalyzeExpression(*_if.condition);
+				if (condType != Type::Bool) {
+					std::cerr << "Type Error: IF condition must be boolean.\n";
+					exit(EXIT_FAILURE);
+				}
+
+				analyzer->AnalyzeBlock(_if.thenBlock);
+
+				if (_if.elseBlock.has_value()) {
+					analyzer->AnalyzeBlock(_if.elseBlock.value());
+				}
 			}
 			void operator()(const NodeStatementWhile& _while)
 			{
@@ -144,14 +167,14 @@ private:
 	void AnalyzeFunction(NodeFunction& func)
 	{
 		symbols.stackOffset = 0;
-
+		symbols.EnterScope();
 		for (const auto& var : func.parameters)
 		{
 			symbols.DeclareVariable(var.ident.value, var.type);
 		}
 
 		symbols.stackOffset;
-		AnalyzeBlock(func.body);
+		AnalyzeBlock(func.body.value(), false);
 
 		// Align total stack size to 16 bytes
 		size_t total_bytes = symbols.stackOffset;
@@ -160,6 +183,7 @@ private:
 		}
 
 		func.stack_size = total_bytes;
+		symbols.ExitScope();
 	}
 	void AnalyzeBlock(const NodeBlock& block, bool createScope = true) {
 		if (createScope) symbols.EnterScope();
@@ -171,13 +195,44 @@ private:
 		if (createScope) symbols.ExitScope();
 	}
 
-	void AnalyzeProg(const NodeProg& prog)
+	void AnalyzeProg(NodeProg& prog)
 	{
+		for (const auto& func : prog.functions)
+		{
+			std::vector<Type> paramTypes;
+			for (const auto& param : func.parameters) {
+				paramTypes.push_back(param.type);
+			}
+
+			auto existing = symbols.LookupFunction(func.name.value);
+
+
+			if (existing.has_value()) {
+				// Check for prototype mismatch
+				if (existing->paramTypes != paramTypes || existing->returnType != func.retType) {
+					std::cerr << "Error: Redeclaration of " << func.name.value << " with different signature!\n";
+					exit(EXIT_FAILURE);
+				}
+				if (func.body.has_value() && existing->hasBody) {
+					std::cerr << "Error: Redefinition of function " << func.name.value << "\n";
+					exit(EXIT_FAILURE);
+				}
+			}
+
+			bool hasBody = func.body.has_value();
+			symbols.DeclareFunction(func.name.value, func.retType, paramTypes, hasBody);
+		}
+
 		for (auto& func : prog.functions)
 		{
-			AnalyzeFunction(*func);
+			if (func.body.has_value()) {
+				AnalyzeFunction(func);
+			}
 		}
+
+
+
 	}
 	SymbolTable symbols;
-	const NodeProg& ast;
+	NodeProg& ast;
 };

@@ -80,7 +80,6 @@ struct NodeStatementVar
 };
 
 struct NodeStatement;
-struct NodeFunction;
 
 
 struct NodeBlock
@@ -138,12 +137,12 @@ struct NodeFunction
     Token name;
     std::vector<Parameter> parameters;
     Type retType;
-    NodeBlock body;
+    std::optional<NodeBlock> body;
 
     size_t stack_size = 0;
 };
 
 struct NodeProg
 {
-    std::vector<std::unique_ptr<NodeFunction>> functions;
+    std::vector<NodeFunction> functions;
 };

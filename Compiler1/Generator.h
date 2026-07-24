@@ -27,6 +27,8 @@ public:
 			{
 
 				generator->_output << "    mov rax, " << expr.int_lit.value << "\n";
+				generator->push("rax");
+
 			}
 			void operator()(const NodeExprIndent& stat)
 			{
@@ -181,13 +183,25 @@ public:
 				{
 					generator->_output << "    setg al\n";
 				}
+				else if (expr.op.type == TokenType::greater_equal) // >=
+				{
+					generator->_output << "    setge al\n";
+				}
 				else if (expr.op.type == TokenType::less)
 				{
 					generator->_output << "    setl al\n";
 				}
-				else if (expr.op.type == TokenType::equal_equal)
+				else if (expr.op.type == TokenType::less_equal) // <=
+				{
+					generator->_output << "    setle al\n";
+				}
+				else if (expr.op.type == TokenType::equal_equal) // ==
 				{
 					generator->_output << "    sete al\n";
+				}
+				else if (expr.op.type == TokenType::not_equal) // !=
+				{
+					generator->_output << "    setne al\n";
 				}
 
 				generator->_output << "    movzx rax, al\n";
@@ -235,8 +249,8 @@ public:
 				auto function = std::find_if(
 					generator->root.functions.begin(),
 					generator->root.functions.end(),
-					[&](const std::unique_ptr<NodeFunction>& func) {
-						return func->name.value == call.name.value;
+					[&](const NodeFunction& func) {
+						return func.name.value == call.name.value;
 					}
 				);
 
@@ -245,10 +259,10 @@ public:
 					exit(EXIT_FAILURE);
 				}
 
-				if (call.args.size() != (*function)->parameters.size())
+				if (call.args.size() != function->parameters.size())
 				{
 					std::stringstream paramsDef;
-					for (auto& parms : (*function)->parameters)
+					for (auto& parms : function->parameters)
 					{
 						switch (parms.type)
 						{
@@ -273,14 +287,17 @@ public:
 				for (size_t i = 0; i < call.args.size(); ++i)
 				{
 					generator->GenerateExpression(*(call.args[i]));
+				}
 
+				for (size_t i = call.args.size(); i-- > 0; )
+				{
 					if (i < generator->PARAM_REGS.size())
 					{
-						generator->_output << "    mov " << generator->PARAM_REGS[i] << ", rax\n";
+						generator->pop(generator->PARAM_REGS[i]);
 					}
-
 				}
 				generator->_output << "    call " << call.name.value << "\n";
+				generator->push("rax");
 			}
 			Generator* generator;
 		};
@@ -352,9 +369,10 @@ public:
 			void operator()(const NodeStatementReturn& _ret)
 			{
 				generator->GenerateExpression(*_ret.expr);
+				generator->pop("rax"); 
 
 				generator->_output << "    mov rsp, rbp\n";
-				generator->pop("rbp");
+				generator->_output << "    pop rbp\n";
 				generator->_output << "    ret\n";
 			}
 		};
@@ -374,49 +392,64 @@ public:
 		return _output.str();
 	}
 
-	void GenerateFunction(const NodeProg& prog)
+	void GenerateFunction(NodeProg& prog)
 	{
-		auto find = std::find_if(
+		// 1. Verify main exists
+		auto main_it = std::find_if(
 			prog.functions.rbegin(),
 			prog.functions.rend(),
-			[&](const std::unique_ptr<NodeFunction>& func) {
-				return func->name.value == "main";
+			[](const NodeFunction& func) {
+				return func.name.value == "main";
 			}
 		);
-		if (find == prog.functions.rend())
+
+		if (main_it == prog.functions.rend())
 		{
-			std::cerr << "Missing main entry point" << "\n";
+			std::cerr << "Missing main entry point\n";
 			exit(EXIT_FAILURE);
 		}
+
+		// System V AMD64 ABI parameter registers
+		const std::vector<std::string> PARAM_REGS = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
+
 		for (auto& func : prog.functions)
 		{
-			_varCount = 0;
-			_output << func->name.value << ":\n";
+			if (!func.body.has_value()) {
+				continue; // Skip forward declarations
+			}
 
-			// 1. Prologue
+			_varCount = 0;
+			_stackSize = 0;
+			scopes.clear();
+			scopes.emplace_back(); 
+
+			_output << func.name.value << ":\n";
+
+			// Prologue
 			push("rbp");
 			_output << "    mov rbp, rsp\n";
 
-			if (func->stack_size > 0) {
-				_output << "    sub rsp, " << std::to_string(func->stack_size) << "\n";
-			}
+			size_t bytes_needed = func.stack_size;
+
 			
-			for (size_t i = 0; i < func->parameters.size(); ++i)
+			if (bytes_needed > 0) {
+				_output << "    sub rsp, " << std::to_string(bytes_needed) << "\n";
+			}
+
+			for (size_t i = 0; i < func.parameters.size(); ++i)
 			{
-				const auto& param = func->parameters[i];
-				size_t slot = ++_varCount; // Slot 1, 2, ...
+				const auto& param = func.parameters[i];
+				size_t slot = ++_varCount; // Reserve slot 1, 2, ...
 				size_t offset = slot * 8;
 
 				scopes.back().variables.insert({ param.ident.value, Var{.stack_location = slot} });
 
-				// Emit copy from ABI register to stack frame
 				_output << "    mov QWORD [rbp - " << std::to_string(offset)
 					<< "], " << PARAM_REGS[i] << "\n";
 			}
-			// 2. Generate function body statements
-			GenerateBlock(func->body, true);
 
-			// 3. Trailing Epilogue (Safety net for void functions or falling off the end)
+			GenerateBlock(func.body.value(), false);
+
 			_output << "    mov rsp, rbp\n";
 			pop("rbp");
 			_output << "    ret\n";

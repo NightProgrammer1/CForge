@@ -80,18 +80,21 @@ public:
                 }
 
             
-                while (PeekToken() && PeekToken().value().type != TokenType::close_paren) {
-                    if (auto node_expr = ParseBoolean())
-                    {
+                while (true) {
+                    if (auto node_expr = ParseBoolean()) {
                         funcCall.args.push_back(std::move(node_expr));
                     }
-                    else
-                    {
-                        std::cerr << "Invalid (Function call) expression" << std::endl;
+                    else {
+                        std::cerr << "Invalid expression in function call '"
+                            << identifier.value << "'" << std::endl;
                         exit(EXIT_FAILURE);
                     }
-                    if(TryMatch(TokenType::comma)) 
-                            Consume(TokenType::comma);
+
+                    if (Match(TokenType::comma)) {
+                        continue;
+                    }
+
+                    break;
                 }
                 expr->var = std::move(funcCall);
 
@@ -151,11 +154,10 @@ public:
     }
     std::unique_ptr<NodeExpr> ParseExpr()
     {
-		//Handle the case where we have a term, and then we have a binary operator (+ or -) that combines two terms.
         auto left = ParseTerm();
 
         auto p = PeekToken();
-        while (p && (p->type == TokenType::plus || p->type == TokenType::sub)) // If its a binary expr
+        while (p && (p->type == TokenType::plus || p->type == TokenType::sub)) 
         {
             Token op = GetToken();
             auto right = ParseTerm();
@@ -184,7 +186,8 @@ public:
         while (PeekToken() &&
             (   PeekToken()->type == TokenType::less ||
                 PeekToken()->type == TokenType::greater ||
-                PeekToken()->type == TokenType::equal_equal))
+                PeekToken()->type == TokenType::equal_equal ||
+                PeekToken()->type == TokenType::less_equal))
         {
             Token op = GetToken();
             auto right = ParseExpr();
@@ -323,10 +326,10 @@ public:
         {
             bool has_identifier = PeekToken().has_value() && (PeekToken().value().type == TokenType::_identifier);
             bool has_equal = PeekToken(1).has_value() && (PeekToken(1).value().type == TokenType::equal);
+            auto statement_int = NodeStatementVar{ .ident = GetToken() };
 
             if (has_identifier && has_equal)
             {
-                auto statement_int = NodeStatementVar{.ident = GetToken()};
 
                 Consume(TokenType::equal);
                 
@@ -344,6 +347,8 @@ public:
                 
                 return std::make_unique <NodeStatement>(NodeStatement{ .stat = std::move(statement_int) });
             }
+
+            
         }
         else if (Match(TokenType::_bool))
         {
@@ -390,8 +395,16 @@ public:
         {
             NodeStatementReturn ret;
 
-            
-            ret.expr = std::move(ParseExpr());
+            if (auto expr = ParseBoolean())
+            {
+                ret.expr = std::move(expr);
+
+            }
+            else
+            {
+                std::cerr << "Invalid return expression\n";
+                exit(EXIT_FAILURE);
+            }
 
             Consume(TokenType::semicolon);
 
@@ -403,13 +416,9 @@ public:
         if (auto expr = ParseBoolean())
         {
             Consume(TokenType::semicolon);
-
-            return std::make_unique<NodeStatement>(
-                NodeStatement{
-                    .stat = NodeStatementExpr{
-                        std::move(expr)
-                    }
-                });
+            NodeStatementExpr p;
+            p.expr = std::move(expr);
+            return std::make_unique<NodeStatement>(NodeStatement{ .stat = std::move(p) });
         }
         return {};
     }
@@ -432,11 +441,6 @@ public:
 
             if (!TryMatch(TokenType::comma))
             {
-                if(!TryMatch(TokenType::close_paren))
-                {
-                    std::cerr << "Invalid function parameters list\n";
-                    exit(EXIT_FAILURE);
-                }
                 break;
 
             }
@@ -448,51 +452,56 @@ public:
         Consume(TokenType::close_paren);
         return parameterList;
     }
-    std::unique_ptr<NodeFunction> ParseFunctions()
+    NodeFunction ParseFunctions()
     {
-        NodeFunction decl;
+        NodeFunction func;
 
         if (GetToken().type == TokenType::_int)
         {
-            decl.retType = Type::Int;
+            func.retType = Type::Int;
 
         }
-        decl.name = Token{TokenType::_identifier, GetToken().value};
-        decl.parameters = ParseParameter();
-        if (Match(TokenType::open_brace)) {
-            decl.body = ParseBlock();
+        func.name = Token{TokenType::_identifier, Consume(TokenType::_identifier).value().value};
+
+        func.parameters = ParseParameter();
+
+        if (Match(TokenType::semicolon)) { //forward declaration
+
+            func.body = std::nullopt; 
         }
-        return std::make_unique<NodeFunction>(std::move(decl));
+        else if (PeekToken().value().type == TokenType::open_brace) {
+            Consume(TokenType::open_brace);
+
+            auto block = ParseBlock();
+
+            func.body = std::move(block);
+        }
+        else {
+            std::cerr << "Expected ';' or '{' after function signature." << std::endl;
+            exit(EXIT_FAILURE);
+        }
+        
+        return func;
     }
     std::optional<NodeProg> ParseProgram()
     {
-        NodeProg program;
-        std::vector<std::unique_ptr<NodeStatement>> stats;
-
-        auto p = PeekToken();
-        while(p){
-            if (TryMatch(TokenType::_int))
-            {
-                if (TryMatch(TokenType::_int) &&
-                    PeekToken(1) && PeekToken(1)->type == TokenType::_identifier &&
-                    PeekToken(2) && PeekToken(2)->type == TokenType::open_paren)
-                {
-                    program.functions.push_back(ParseFunctions());
-                }
-                else
-                {
-                    std::cerr << "Unexpected top-level token: " << PeekToken()->value << std::endl;
-                    exit(EXIT_FAILURE);
-                }
-
+        NodeProg prog;
+        while (PeekToken().has_value()) {
+            if (IsFunctionDeclaration()) {
+                prog.functions.push_back(ParseFunctions());
             }
-            p = PeekToken();
+            else {
+                std::cerr << "Syntax Error: Top-level code must be a function declaration or definition." << std::endl;
+                exit(EXIT_FAILURE);
+            }
         }
+
+        return prog;
        
 
-        return std::move(program);
     }
     
+   
     std::unique_ptr<NodeStatement> ParseIf()
     {
 
@@ -560,6 +569,17 @@ public:
 	}
 
 private:
+
+    bool IsFunctionDeclaration() {
+        if (PeekToken()->type == TokenType::_int || PeekToken()->type == TokenType::_bool) {
+            if (PeekToken(1).has_value() && PeekToken(1)->type == TokenType::_identifier) {
+                if (PeekToken(2).has_value() && PeekToken(2)->type == TokenType::open_paren) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
     std::optional<Token> TryConsume(TokenType type)
     {
         if (!PeekToken() || PeekToken()->type != type) {
@@ -598,10 +618,10 @@ private:
 
         return false;
     }
-    void Consume(TokenType type)
+    std::optional<Token> Consume(TokenType type)
     {
-        if (!PeekToken().has_value()) { return; }
-        auto error = [&](const std::string& token) { if ((PeekToken().has_value() && PeekToken()->type != type) ) { std::cerr << "Expected: " << (token) << "  " << "Got: " << PeekToken().value().value << std::endl; exit(EXIT_FAILURE); } };
+        if (!PeekToken().has_value()) { return{}; }
+        auto error = [&](const std::string& token) { if ((PeekToken().has_value() && PeekToken()->type != type) ) { std::cerr << "Expected: " << (token) << " at line: " << PeekToken().value().line << "  " << "Got: " << PeekToken().value().value << std::endl; exit(EXIT_FAILURE); } };
         switch (type)
         {
         case TokenType::exit:
@@ -628,9 +648,14 @@ private:
         case TokenType::equal:
             error("=");
             break;
+        case TokenType::equal_equal:
+            error("=");
+            break;
         case TokenType::plus:
+            error("+");
             break;
         case TokenType::sub:
+            error("-");
             break;
         case TokenType::mult:
             break;
@@ -643,17 +668,21 @@ private:
             error("}");
             break;
         case TokenType::_if:
+            error("if");
             break;
         case TokenType::_while:
             error("while");
             break;
         case TokenType::_else:
             break;
+        case TokenType::_return:
+            error("return");
+            break;
         default:
             break;
         }
 
-        _currentIndex++;
+        return  _tokens.at(_currentIndex++); 
     }
     Token GetToken()
     {

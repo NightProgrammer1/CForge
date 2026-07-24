@@ -12,6 +12,13 @@ struct Symbol {
     size_t stackOffset; 
 };
 
+struct FunctionSymbol {
+    Type returnType;
+    std::vector<Type> paramTypes;
+    bool hasBody = false;
+    
+};
+
 class SymbolTable
 {
 public:
@@ -37,6 +44,24 @@ public:
         return true;
     }
 
+    bool DeclareFunction(const std::string& name, Type returnType, std::vector<Type> paramTypes, bool hasBody) {
+        if (functions.contains(name)) {
+            auto& existing = functions.at(name);
+            if (existing.paramTypes != paramTypes || existing.returnType != returnType) {
+                return false; // Signature mismatch
+            }
+            if (existing.hasBody && hasBody) {
+                return false; 
+            }
+            if (hasBody) {
+                existing.hasBody = true; 
+            }
+            return true;
+        }
+
+        functions[name] = FunctionSymbol{ returnType, paramTypes, hasBody };
+        return true;
+    }
     std::optional<Symbol> LookupVariable(const std::string& name) const {
         // Search from innermost scope outwards
         for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
@@ -48,7 +73,15 @@ public:
         return std::nullopt;
     }
 
+    std::optional<FunctionSymbol> LookupFunction(const std::string& name)
+    {
+        if (functions.contains(name)) {
+            return functions.at(name);
+        }
+        return std::nullopt;
+    }
+
 private:
     std::vector<std::unordered_map<std::string, Symbol>> scopes;
-
+    std::unordered_map<std::string, FunctionSymbol> functions;
 };

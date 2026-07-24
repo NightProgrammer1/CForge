@@ -37,6 +37,9 @@ enum class TokenType
     less,
     greater,
     equal_equal,
+    greater_equal,
+    less_equal,
+    not_equal,
     _or,
     _and,
     _not,
@@ -49,6 +52,8 @@ struct Token
 {
 	TokenType type;
 	std::string value;
+    int line;
+
 };
 
 
@@ -65,18 +70,14 @@ public:
     std::vector<Token> tokenize(const std::string& content)
     {
         std::vector<Token> tokens;
-
+        int lineCount = 1;
         while (PeekChar().has_value())
         {
             char c = PeekChar().value();
 
-            if (isspace(c))
-            {
-                _currentIndex++;
-                continue;
-            }
+            
 
-            else if (isalpha(c) || c == '_')
+            if (isalpha(c) || c == '_')
             {
                 std::string identifier;
 
@@ -89,51 +90,51 @@ public:
 
                 if (identifier == "exit")
                 {
-                    tokens.push_back({ TokenType::exit, identifier });
+                    tokens.push_back({  TokenType::exit, identifier, lineCount });
 
                 }
                 else if (identifier == "int")
                 {
-                    tokens.push_back({ TokenType::_int, identifier });
+                    tokens.push_back({  TokenType::_int, identifier, lineCount });
                 }
                 else if (identifier == "if")
                 {
-                    tokens.push_back({ TokenType::_if, identifier });
+                    tokens.push_back({  TokenType::_if, identifier, lineCount });
 
                 }
                 else if (identifier == "else")
                 {
-                    tokens.push_back({ TokenType::_else, identifier });
+                    tokens.push_back({ TokenType::_else, identifier, lineCount });
 
                 }
                 else if (identifier == "bool")
                 {
-                    tokens.push_back({ TokenType::_bool, identifier });
+                    tokens.push_back({ TokenType::_bool, identifier,  lineCount });
 
                 }
                 else if (identifier == "true")
                 {
-                    tokens.push_back({ TokenType::true_literal, identifier });
+                    tokens.push_back({  TokenType::true_literal, identifier, lineCount });
 
                 }
                 else if (identifier == "false")
                 {
-                    tokens.push_back({ TokenType::false_literal, identifier });
+                    tokens.push_back({  TokenType::false_literal, identifier, lineCount });
 
                 }
 				else if (identifier == "while")
 				{
-					tokens.push_back({ TokenType::_while, identifier });
+					tokens.push_back({  TokenType::_while, identifier, lineCount });
 
 				}
                 else if (identifier == "return")
                 {
-                    tokens.push_back({ TokenType::_return, identifier });
+                    tokens.push_back({ TokenType::_return, identifier,  lineCount });
 
                 }
                 else
                 {
-                    tokens.push_back({ TokenType::_identifier, identifier });
+                    tokens.push_back({  TokenType::_identifier, identifier, lineCount });
                 }
             }
 
@@ -147,30 +148,40 @@ public:
 
                 }
 
-                tokens.push_back({ TokenType::int_literal, number });
+                tokens.push_back({  TokenType::int_literal, number, lineCount });
             }
 
+            else if (c == '\n')
+            {
+                _currentIndex++;
+                lineCount++;
+            }
+            else if (isspace(c))
+            {
+                _currentIndex++;
+                continue;
+            }
             else if (c == ';')
             {
-                tokens.push_back({ TokenType::semicolon, ";" });
+                tokens.push_back({  TokenType::semicolon, ";", lineCount });
                 _currentIndex++;
 
             }
             else if (c == ',')
             {
-                tokens.push_back({ TokenType::comma, "," });
+                tokens.push_back({  TokenType::comma, ",", lineCount, });
                 _currentIndex++;
             }
             else if (c == '(')
             {
-                tokens.push_back({ TokenType::open_paren, "(" });
+                tokens.push_back({ TokenType::open_paren, "(", lineCount });
                 _currentIndex++;
                 continue;
 
             }
             else if (c == ')')
             {
-                tokens.push_back({ TokenType::close_paren, ")" });
+                tokens.push_back({  TokenType::close_paren, ")", lineCount });
                 _currentIndex++;
                 continue;
             }
@@ -190,44 +201,53 @@ public:
 				_currentIndex++;
 				if (PeekChar().has_value() && PeekChar().value() == '+')
 				{
-					tokens.push_back({ TokenType::increment, "++" });
+					tokens.push_back({ TokenType::increment, "++", lineCount});
 					_currentIndex++;
 					continue;
                 }
                 else
                 {
-                    tokens.push_back({ TokenType::plus, "+" });
+                    tokens.push_back({  TokenType::plus, "+", lineCount });
                 }
             }
             else if (c == '*')
             {
-                tokens.push_back({ TokenType::mult, "*" });
+                tokens.push_back({  TokenType::mult, "*", lineCount });
                 _currentIndex++;
             }
             else if (c == '/')
             {
-                tokens.push_back({ TokenType::div, "/" });
+                tokens.push_back({  TokenType::div, "/", lineCount });
                 _currentIndex++;
             }
             else if (c == '-')
             {
-                tokens.push_back({ TokenType::sub, "-" });
+                tokens.push_back({  TokenType::sub, "-", lineCount });
                 _currentIndex++;
             }
             else if (c == '{')
             {
-                tokens.push_back({ TokenType::open_brace, "{" });
+                tokens.push_back({  TokenType::open_brace, "{", lineCount });
                 _currentIndex++;
             }
             else if (c == '}')
             {
-                tokens.push_back({ TokenType::close_brace, "}" });
+                tokens.push_back({  TokenType::close_brace, "}", lineCount });
                 _currentIndex++;
             }
             else if (c == '<')
             {
-                tokens.push_back({ TokenType::less, "<" });
                 _currentIndex++;
+                if (PeekChar().has_value() && PeekChar().value() == '=')
+                {
+                    tokens.push_back({ TokenType::less_equal, "<=", lineCount });
+                    _currentIndex++;
+                    continue;
+                }
+                else
+                {
+                    tokens.push_back({ TokenType::less, "<", lineCount });
+                }
             }
             else if (c == '>')
             {
@@ -239,7 +259,7 @@ public:
                 _currentIndex++;
                 if (PeekChar().has_value() && PeekChar().value() == '|') {
                     _currentIndex++;
-                    tokens.push_back({ TokenType::_or, "||" });
+                    tokens.push_back({TokenType::_or, "||" });
                 }
             }
             else if (c == '&')
@@ -256,7 +276,7 @@ public:
              }
             else if (c == '!')
             {
-                tokens.push_back({ TokenType::_not, "!" });
+                tokens.push_back({  TokenType::_not, "!" });
                 _currentIndex++;
 
             }

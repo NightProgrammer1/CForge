@@ -4,44 +4,86 @@ _start:
     mov rdi, rax
     mov rax, 60
     syscall
-add:
+isOdd:
     push rbp
     mov rbp, rsp
-    sub rsp, 48
+    sub rsp, 16
     mov QWORD [rbp - 8], rdi
-    mov QWORD [rbp - 16], rsi
-    mov QWORD [rbp - 24], rdx
-    mov QWORD [rbp - 32], rcx
-    mov QWORD [rbp - 40], r8
     mov rax, QWORD [rbp - 8]
     push rax
-    mov rax, QWORD [rbp - 16]
+    mov rax, 0
     push rax
     pop rdi
     pop rax
-    add rax, rdi
+    cmp rax, rdi
+    sete al
+    movzx rax, al
     push rax
-    mov rax, QWORD [rbp - 24]
+    pop rax
+    test rax, rax
+    jz ifend0
+    mov rax, 0
+    push rax
+    pop rax
+    mov rsp, rbp
+    pop rbp
+    ret
+    ifend0:
+    mov rax, QWORD [rbp - 8]
+    push rax
+    mov rax, 1
     push rax
     pop rdi
     pop rax
-    add rax, rdi
+    sub rax, rdi
     push rax
-    mov rax, QWORD [rbp - 32]
+    pop rdi
+    call isEven
+    push rax
+    pop rax
+    mov rsp, rbp
+    pop rbp
+    ret
+    mov rsp, rbp
+    pop rbp
+    ret
+isEven:
+    push rbp
+    mov rbp, rsp
+    sub rsp, 16
+    mov QWORD [rbp - 8], rdi
+    mov rax, QWORD [rbp - 8]
+    push rax
+    mov rax, 0
     push rax
     pop rdi
     pop rax
-    add rax, rdi
+    cmp rax, rdi
+    sete al
+    movzx rax, al
     push rax
-    mov rax, QWORD [rbp - 40]
+    pop rax
+    test rax, rax
+    jz ifend1
+    mov rax, 1
+    push rax
+    pop rax
+    mov rsp, rbp
+    pop rbp
+    ret
+    ifend1:
+    mov rax, QWORD [rbp - 8]
+    push rax
+    mov rax, 1
     push rax
     pop rdi
     pop rax
-    add rax, rdi
+    sub rax, rdi
     push rax
-    mov QWORD [rbp - 48], rax
-    mov rax, QWORD [rbp - 48]
+    pop rdi
+    call isOdd
     push rax
+    pop rax
     mov rsp, rbp
     pop rbp
     ret
@@ -51,24 +93,15 @@ add:
 main:
     push rbp
     mov rbp, rsp
-    sub rsp, 16
-    mov rax, 1
-    mov rdi, rax
-    mov rax, 2
-    mov rsi, rax
-    mov rax, 3
-    mov rdx, rax
-    mov rax, 4
-    mov rcx, rax
-    mov rax, 5
-    mov r8, rax
-    call add
-    mov QWORD [rbp - 8], rax
-    mov rax, QWORD [rbp - 8]
+    mov rax, 7
     push rax
-    mov rdi, rax
-    mov rax, 60
-    syscall
+    pop rdi
+    call isEven
+    push rax
+    pop rax
+    mov rsp, rbp
+    pop rbp
+    ret
     mov rsp, rbp
     pop rbp
     ret

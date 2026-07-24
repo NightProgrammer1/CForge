@@ -4,8 +4,11 @@
 Compiler1/CMakeFiles/Compiler1.dir/Compiler1.cpp.o: /mnt/c/Users/james/source/repos/Compiler1/Compiler1/Compiler1.cpp \
   /mnt/c/Users/james/source/repos/Compiler1/Compiler1/Compiler1.h \
   /mnt/c/Users/james/source/repos/Compiler1/Compiler1/Generator.h \
+  /mnt/c/Users/james/source/repos/Compiler1/Compiler1/SemanticAnalyzer.h \
+  /mnt/c/Users/james/source/repos/Compiler1/Compiler1/SymbolTable.h \
   /mnt/c/Users/james/source/repos/Compiler1/Compiler1/parser.h \
   /mnt/c/Users/james/source/repos/Compiler1/Compiler1/tokenization.h \
+  /mnt/c/Users/james/source/repos/Compiler1/Compiler1/types.h \
   /usr/include/alloca.h \
   /usr/include/asm-generic/bitsperlong.h \
   /usr/include/asm-generic/errno-base.h \
@@ -383,7 +386,9 @@ Compiler1/CMakeFiles/Compiler1.dir/Compiler1.cpp.o:
 
 /usr/include/x86_64-linux-gnu/bits/unistd_ext.h:
 
-/usr/include/c++/15/exception:
+/usr/include/x86_64-linux-gnu/bits/uintn-identity.h:
+
+/usr/include/x86_64-linux-gnu/bits/types/wint_t.h:
 
 /usr/include/c++/15/cwchar:
 
@@ -400,8 +405,6 @@ Compiler1/CMakeFiles/Compiler1.dir/Compiler1.cpp.o:
 /usr/include/c++/15/cstdio:
 
 /usr/include/x86_64-linux-gnu/bits/floatn-common.h:
-
-/usr/include/x86_64-linux-gnu/bits/types/wint_t.h:
 
 /usr/include/c++/15/cstdint:
 
@@ -469,12 +472,6 @@ Compiler1/CMakeFiles/Compiler1.dir/Compiler1.cpp.o:
 
 /usr/include/c++/15/bits/stl_algo.h:
 
-/usr/lib/gcc/x86_64-linux-gnu/15/crtbeginS.o:
-
-/usr/include/c++/15/bits/range_access.h:
-
-/usr/include/c++/15/debug/debug.h:
-
 /usr/lib/gcc/x86_64-linux-gnu/15/libgcc_s.so:
 
 /usr/include/c++/15/bits/stl_construct.h:
@@ -509,6 +506,10 @@ Compiler1/CMakeFiles/Compiler1.dir/Compiler1.cpp.o:
 
 /usr/include/c++/15/bits/move.h:
 
+/usr/lib/gcc/x86_64-linux-gnu/15/include/limits.h:
+
+/usr/include/c++/15/bits/monostate.h:
+
 /usr/include/c++/15/bits/version.h:
 
 /usr/include/c++/15/bits/concept_check.h:
@@ -517,23 +518,45 @@ Compiler1/CMakeFiles/Compiler1.dir/Compiler1.cpp.o:
 
 /usr/include/x86_64-linux-gnu/bits/posix2_lim.h:
 
+/mnt/c/Users/james/source/repos/Compiler1/Compiler1/SymbolTable.h:
+
 /usr/include/c++/15/bits/atomic_base.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/cookie_io_functions_t.h:
 
-/usr/include/c++/15/bits/algorithmfwd.h:
+/usr/include/c++/15/bits/stl_pair.h:
 
-/usr/include/c++/15/bits/std_abs.h:
+/usr/include/c++/15/bits/stl_bvector.h:
 
-/usr/include/c++/15/typeinfo:
+/usr/include/c++/15/bits/stl_iterator.h:
 
-/usr/include/x86_64-linux-gnu/bits/posix1_lim.h:
+/usr/include/c++/15/memory:
+
+/usr/include/c++/15/vector:
+
+/usr/include/c++/15/bits/basic_ios.tcc:
+
+/usr/include/x86_64-linux-gnu/bits/select.h:
+
+/usr/include/x86_64-linux-gnu/bits/time.h:
+
+/usr/include/asm-generic/errno-base.h:
+
+/usr/include/x86_64-linux-gnu/bits/types/__FILE.h:
 
 /mnt/c/Users/james/source/repos/Compiler1/Compiler1/parser.h:
 
 /usr/include/c++/15/bits/allocated_ptr.h:
 
 /usr/include/c++/15/bits/istream.tcc:
+
+/usr/lib/x86_64-linux-gnu/libmvec.so.1:
+
+/usr/include/c++/15/bits/stl_iterator_base_types.h:
+
+/usr/include/stdc-predef.h:
+
+/mnt/c/Users/james/source/repos/Compiler1/Compiler1/Compiler1.h:
 
 /usr/include/syscall.h:
 
@@ -559,45 +582,49 @@ Compiler1/CMakeFiles/Compiler1.dir/Compiler1.cpp.o:
 
 /mnt/c/Users/james/source/repos/Compiler1/Compiler1/Generator.h:
 
+/usr/include/c++/15/bits/allocator.h:
+
+/usr/include/asm-generic/posix_types.h:
+
+/usr/include/c++/15/bit:
+
 /usr/include/pthread.h:
 
 /usr/include/c++/15/bits/memory_resource.h:
 
 /usr/include/c++/15/bits/atomic_lockfree_defines.h:
 
-/usr/include/c++/15/bits/stl_pair.h:
+/usr/lib/gcc/x86_64-linux-gnu/15/crtbeginS.o:
 
-/usr/include/c++/15/bits/stl_bvector.h:
+/usr/include/c++/15/bits/range_access.h:
 
-/usr/include/c++/15/bits/stl_iterator.h:
+/mnt/c/Users/james/source/repos/Compiler1/Compiler1/SemanticAnalyzer.h:
 
-/usr/include/c++/15/memory:
+/usr/include/x86_64-linux-gnu/bits/local_lim.h:
 
-/usr/include/c++/15/vector:
+/usr/include/c++/15/bits/codecvt.h:
 
-/usr/include/c++/15/bits/basic_ios.tcc:
+/usr/include/c++/15/bits/algorithmfwd.h:
+
+/usr/include/c++/15/bits/charconv.h:
+
+/usr/include/c++/15/pstl/glue_algorithm_defs.h:
+
+/usr/include/c++/15/bits/std_abs.h:
+
+/usr/include/c++/15/typeinfo:
 
 /usr/include/x86_64-linux-gnu/bits/types/sigset_t.h:
 
-/usr/include/asm-generic/bitsperlong.h:
-
 /usr/include/asm-generic/types.h:
 
-/usr/include/asm-generic/errno-base.h:
+/usr/include/asm-generic/bitsperlong.h:
 
-/usr/include/x86_64-linux-gnu/bits/types/__FILE.h:
+/usr/include/x86_64-linux-gnu/bits/posix1_lim.h:
 
 /usr/include/c++/15/bits/align.h:
 
 /usr/include/x86_64-linux-gnu/bits/stdlib-float.h:
-
-/usr/include/x86_64-linux-gnu/bits/uintn-identity.h:
-
-/usr/include/c++/15/ext/aligned_buffer.h:
-
-/usr/include/c++/15/cwctype:
-
-/usr/include/x86_64-linux-gnu/asm/types.h:
 
 /usr/include/alloca.h:
 
@@ -619,41 +646,19 @@ Compiler1/CMakeFiles/Compiler1.dir/Compiler1.cpp.o:
 
 /usr/include/asm-generic/int-ll64.h:
 
-/mnt/c/Users/james/source/repos/Compiler1/Compiler1/Compiler1.h:
-
-/usr/lib/x86_64-linux-gnu/libmvec.so.1:
-
-/usr/include/c++/15/bits/stl_iterator_base_types.h:
-
-/usr/include/c++/15/bit:
-
-/usr/include/c++/15/bits/allocator.h:
-
-/usr/include/asm-generic/posix_types.h:
-
-/usr/include/stdc-predef.h:
-
-/usr/include/c++/15/pstl/glue_algorithm_defs.h:
-
-/usr/include/c++/15/bits/charconv.h:
-
-/usr/include/x86_64-linux-gnu/bits/local_lim.h:
-
-/usr/include/c++/15/bits/codecvt.h:
-
 /usr/include/x86_64-linux-gnu/c++/15/bits/cpu_defines.h:
 
 /usr/include/x86_64-linux-gnu/bits/timesize.h:
 
 /usr/include/c++/15/bits/uses_allocator_args.h:
 
-/usr/include/c++/15/backward/binders.h:
-
 /usr/include/c++/15/bits/cpp_type_traits.h:
 
 /usr/include/c++/15/bits/basic_string.h:
 
 /usr/include/c++/15/streambuf:
+
+/usr/include/c++/15/backward/binders.h:
 
 /usr/include/c++/15/bits/shared_ptr_atomic.h:
 
@@ -715,9 +720,15 @@ Compiler1/CMakeFiles/Compiler1.dir/Compiler1.cpp.o:
 
 /usr/include/c++/15/bits/max_size_type.h:
 
-/usr/lib/gcc/x86_64-linux-gnu/15/include/limits.h:
+/usr/include/c++/15/debug/debug.h:
 
-/usr/include/c++/15/bits/monostate.h:
+/usr/include/c++/15/exception:
+
+/usr/include/c++/15/ext/aligned_buffer.h:
+
+/usr/include/c++/15/cwctype:
+
+/usr/include/x86_64-linux-gnu/asm/types.h:
 
 /usr/include/c++/15/ext/alloc_traits.h:
 
@@ -750,6 +761,10 @@ Compiler1/CMakeFiles/Compiler1.dir/Compiler1.cpp.o:
 /usr/include/linux/errno.h:
 
 /usr/include/c++/15/new:
+
+/usr/include/x86_64-linux-gnu/bits/typesizes.h:
+
+/usr/include/c++/15/numbers:
 
 /usr/include/c++/15/bits/predefined_ops.h:
 
@@ -857,10 +872,6 @@ Compiler1/CMakeFiles/Compiler1.dir/Compiler1.cpp.o:
 
 /usr/include/x86_64-linux-gnu/bits/sched.h:
 
-/usr/include/x86_64-linux-gnu/bits/time.h:
-
-/usr/include/x86_64-linux-gnu/bits/select.h:
-
 /usr/include/x86_64-linux-gnu/bits/getopt_posix.h:
 
 /usr/include/time.h:
@@ -893,6 +904,8 @@ Compiler1/CMakeFiles/Compiler1.dir/Compiler1.cpp.o:
 
 /usr/include/x86_64-linux-gnu/bits/thread-shared-types.h:
 
+/mnt/c/Users/james/source/repos/Compiler1/Compiler1/types.h:
+
 /usr/include/x86_64-linux-gnu/bits/time64.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/__fpos_t.h:
@@ -920,7 +933,3 @@ Compiler1/CMakeFiles/Compiler1.dir/Compiler1.cpp.o:
 /usr/include/x86_64-linux-gnu/bits/types/struct_sched_param.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/struct_tm.h:
-
-/usr/include/c++/15/numbers:
-
-/usr/include/x86_64-linux-gnu/bits/typesizes.h:

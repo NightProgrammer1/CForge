@@ -174,6 +174,7 @@ Compiler1/CMakeFiles/Compiler1.dir/Compiler1.cpp.o: \
  /usr/include/c++/15/bits/enable_special_members.h \
  /mnt/c/Users/james/source/repos/Compiler1/Compiler1/Generator.h \
  /mnt/c/Users/james/source/repos/Compiler1/Compiler1/parser.h \
+ /mnt/c/Users/james/source/repos/Compiler1/Compiler1/types.h \
  /usr/include/c++/15/variant /usr/include/c++/15/bits/monostate.h \
  /usr/include/c++/15/bits/parse_numbers.h /usr/include/c++/15/memory \
  /usr/include/c++/15/bits/stl_tempbuf.h \
@@ -223,14 +224,16 @@ Compiler1/CMakeFiles/Compiler1.dir/Compiler1.cpp.o: \
  /usr/include/c++/15/bits/hashtable_policy.h \
  /usr/include/c++/15/bits/node_handle.h \
  /usr/include/c++/15/bits/erase_if.h /usr/include/c++/15/sstream \
- /usr/include/c++/15/bits/sstream.tcc /usr/include/c++/15/fstream \
- /usr/include/c++/15/bits/codecvt.h \
- /usr/include/x86_64-linux-gnu/c++/15/bits/basic_file.h \
- /usr/include/x86_64-linux-gnu/c++/15/bits/c++io.h \
- /usr/include/c++/15/bits/fstream.tcc /usr/include/c++/15/algorithm \
+ /usr/include/c++/15/bits/sstream.tcc /usr/include/c++/15/algorithm \
  /usr/include/c++/15/bits/stl_algo.h \
  /usr/include/c++/15/bits/algorithmfwd.h \
  /usr/include/c++/15/bits/stl_heap.h \
  /usr/include/c++/15/bits/uniform_int_dist.h \
  /usr/include/c++/15/bits/ranges_algo.h \
- /usr/include/c++/15/pstl/glue_algorithm_defs.h
+ /usr/include/c++/15/pstl/glue_algorithm_defs.h \
+ /usr/include/c++/15/fstream /usr/include/c++/15/bits/codecvt.h \
+ /usr/include/x86_64-linux-gnu/c++/15/bits/basic_file.h \
+ /usr/include/x86_64-linux-gnu/c++/15/bits/c++io.h \
+ /usr/include/c++/15/bits/fstream.tcc \
+ /mnt/c/Users/james/source/repos/Compiler1/Compiler1/SemanticAnalyzer.h \
+ /mnt/c/Users/james/source/repos/Compiler1/Compiler1/SymbolTable.h
