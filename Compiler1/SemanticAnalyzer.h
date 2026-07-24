@@ -31,6 +31,8 @@ private:
 			Type operator()(const NodeExprCall& call) {
 				auto funcSymbol = analyzer->symbols.LookupFunction(call.name.value);
 
+
+
 				if (!funcSymbol.has_value()) {
 					std::cerr << "Semantic Error: Call to undeclared function '"
 						<< call.name.value << "'\n";
@@ -42,6 +44,18 @@ private:
 						<< call.name.value << "'\n";
 					exit(EXIT_FAILURE);
 				}
+				for (size_t i = 0; i < call.args.size(); ++i) {
+					Type argType = analyzer->AnalyzeExpression(*call.args[i]);
+					Type expectedType = funcSymbol->paramTypes[i];
+					if (argType != expectedType) {
+						std::cerr << "Type Error: Argument " << i + 1 << " in call to '"
+							<< call.name.value << "' has mismatched type.\n";
+						exit(EXIT_FAILURE);
+					}
+				}
+
+				return funcSymbol->returnType;
+			
 			}
 			Type operator()(const NodeExprIndent& stat) {
 				auto symbol = analyzer->symbols.LookupVariable(stat.ident.value);
@@ -55,6 +69,11 @@ private:
 				}
 				return symbol->type;
 			}
+			Type operator()(const NodeExprVoid&) 
+			{
+				return Type::Void;
+			}
+
 			Type operator()(const NodeExprCompare& expr) {
 				auto left = analyzer->AnalyzeExpression(*expr.left);
 				auto right = analyzer->AnalyzeExpression(*expr.right);
@@ -159,13 +178,50 @@ private:
 			}
 			void operator()(const NodeStatementReturn& _ret)
 			{
+				if (!analyzer->currentFunctionReturnType.has_value()) {
+					std::cerr << "Semantic Error: Return statement outside of function.\n";
+					exit(EXIT_FAILURE);
+				}
+
+				analyzer->currentFunctionHasReturn = true;
+				Type expectedType = analyzer->currentFunctionReturnType.value();
+				Type actualType = analyzer->AnalyzeExpression(*_ret.expr);
+				if (_ret.expr) {
+					if (expectedType == Type::Void && actualType != Type::Void) {
+						std::cerr << "Type Error: Cannot return a value from a void function.\n";
+						exit(EXIT_FAILURE);
+					}
+
+					if (actualType != expectedType) {
+						std::cerr << "Type Error: Function return type mismatch in '"
+							<< analyzer->currentFunctionName.value_or("function") << "'.\n";
+						exit(EXIT_FAILURE);
+					}
+				}
+				else {
+					if (expectedType != Type::Void) {
+						std::cerr << "Type Error: Non-void function must return a value.\n";
+						exit(EXIT_FAILURE);
+					}
+				}
 			}
 		};
 		Visitor visitor{ this };
 		std::visit(visitor, statement.stat);
 	}
+
+	int ff()
+	{
+
+	}
 	void AnalyzeFunction(NodeFunction& func)
 	{
+		
+		currentFunctionName = func.name.value; 
+		currentFunctionReturnType = func.retType;
+		currentFunctionHasReturn = false;
+
+
 		symbols.stackOffset = 0;
 		symbols.EnterScope();
 		for (const auto& var : func.parameters)
@@ -176,6 +232,13 @@ private:
 		symbols.stackOffset;
 		AnalyzeBlock(func.body.value(), false);
 
+
+		if (func.retType != Type::Void && !currentFunctionHasReturn) {
+			std::cerr << "Semantic Error: Function '" << func.name.value
+				<< "' has non-void return type but is missing a return statement.\n";
+			exit(EXIT_FAILURE);
+		}
+		symbols.SetFunctionHasReturn(func.name.value, currentFunctionHasReturn);
 		// Align total stack size to 16 bytes
 		size_t total_bytes = symbols.stackOffset;
 		if (total_bytes % 16 != 0) {
@@ -184,6 +247,10 @@ private:
 
 		func.stack_size = total_bytes;
 		symbols.ExitScope();
+
+		currentFunctionName.reset();
+		currentFunctionReturnType = std::nullopt;
+
 	}
 	void AnalyzeBlock(const NodeBlock& block, bool createScope = true) {
 		if (createScope) symbols.EnterScope();
@@ -233,6 +300,9 @@ private:
 
 
 	}
+	std::optional<std::string> currentFunctionName;
+	std::optional<Type> currentFunctionReturnType;
+	bool currentFunctionHasReturn = false;
 	SymbolTable symbols;
 	NodeProg& ast;
 };

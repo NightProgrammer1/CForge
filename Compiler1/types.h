@@ -40,6 +40,11 @@ struct NodeExprIndent
     Token ident;
 };
 
+struct NodeExprVoid
+{
+
+};
+
 struct NodeExprCall
 {
     std::vector<std::unique_ptr<NodeExpr>> args;
@@ -54,6 +59,7 @@ struct NodeExpr
         NodeExprBinary,
         NodeExprBoolLit,
         NodeExprCompare,
+        NodeExprVoid,
         NodeExprUnary,
         NodeExprCall
     > var;
@@ -138,7 +144,6 @@ struct NodeFunction
     std::vector<Parameter> parameters;
     Type retType;
     std::optional<NodeBlock> body;
-
     size_t stack_size = 0;
 };
 

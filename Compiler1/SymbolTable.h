@@ -16,6 +16,8 @@ struct FunctionSymbol {
     Type returnType;
     std::vector<Type> paramTypes;
     bool hasBody = false;
+    bool hasReturn = false;
+
     
 };
 
@@ -30,6 +32,12 @@ public:
 
     void ExitScope() {
         scopes.pop_back();
+    }
+
+    void SetFunctionHasReturn(const std::string& name, bool value) {
+        if (functions.contains(name)) {
+            functions[name].hasReturn = value;
+        }
     }
 
     bool DeclareVariable(const std::string& name, Type type) {

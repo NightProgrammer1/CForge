@@ -299,6 +299,7 @@ public:
 				generator->_output << "    call " << call.name.value << "\n";
 				generator->push("rax");
 			}
+			void operator()(const NodeExprVoid&){}
 			Generator* generator;
 		};
 		Visitor visit(this);
@@ -371,9 +372,7 @@ public:
 				generator->GenerateExpression(*_ret.expr);
 				generator->pop("rax"); 
 
-				generator->_output << "    mov rsp, rbp\n";
-				generator->_output << "    pop rbp\n";
-				generator->_output << "    ret\n";
+			
 			}
 		};
 		Visitor visit(this);

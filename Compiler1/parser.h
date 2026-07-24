@@ -398,7 +398,13 @@ public:
             if (auto expr = ParseBoolean())
             {
                 ret.expr = std::move(expr);
-
+                
+            }
+            else if (Match(TokenType::semicolon))
+            {
+                auto e = std::make_unique<NodeExpr>(NodeExpr{ .var = NodeExprVoid{} });
+                ret.expr = std::move(e);
+               return std::make_unique <NodeStatement>(NodeStatement{ .stat = std::move(ret) });
             }
             else
             {
@@ -452,15 +458,31 @@ public:
         Consume(TokenType::close_paren);
         return parameterList;
     }
+
+    Type ParseType(const Token& token)
+    {
+
+        switch (token.type)
+        {
+        case TokenType::_int:
+            return Type::Int;
+            break;
+        case TokenType::_bool:
+            return Type::Bool;
+            break;
+        case TokenType::_void:
+            return Type::Void;
+            break;
+        default:
+            break;
+        }
+    }
     NodeFunction ParseFunctions()
     {
         NodeFunction func;
 
-        if (GetToken().type == TokenType::_int)
-        {
-            func.retType = Type::Int;
+        func.retType = ParseType(GetToken());
 
-        }
         func.name = Token{TokenType::_identifier, Consume(TokenType::_identifier).value().value};
 
         func.parameters = ParseParameter();
@@ -571,7 +593,7 @@ public:
 private:
 
     bool IsFunctionDeclaration() {
-        if (PeekToken()->type == TokenType::_int || PeekToken()->type == TokenType::_bool) {
+        if (PeekToken()->type == TokenType::_int || PeekToken()->type == TokenType::_bool || PeekToken()->type == TokenType::_void) {
             if (PeekToken(1).has_value() && PeekToken(1)->type == TokenType::_identifier) {
                 if (PeekToken(2).has_value() && PeekToken(2)->type == TokenType::open_paren) {
                     return true;

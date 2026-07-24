@@ -15,7 +15,6 @@ enum class TokenType
 	int_literal,
     open_paren,
     close_paren,
-    _int,
     equal,
 	increment,
 
@@ -25,13 +24,20 @@ enum class TokenType
     div,
 
 
+
+
+    _int,
+    _void,
+    _bool,
+
+
+
     open_brace,
     close_brace,
     _if,
     _else,
     _while,
 
-    _bool,
     true_literal,
     false_literal,
     less,
@@ -96,6 +102,10 @@ public:
                 else if (identifier == "int")
                 {
                     tokens.push_back({  TokenType::_int, identifier, lineCount });
+                }
+                else if (identifier == "void")
+                {
+                    tokens.push_back({ TokenType::_void, identifier, lineCount });
                 }
                 else if (identifier == "if")
                 {
