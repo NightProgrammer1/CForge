@@ -63,8 +63,7 @@ int main(int argc, char* argv[])
 	auto assembly = gen.GenerateProgram();
 
 
-	std::cout << assembly << std::endl;
-	std::string outputPath = (argc >= 3) ? argv[2] : "out.asm";
+	std::string outputPath = (argc >= 3) ? argv[2] : "out.s";
 	std::ofstream out(outputPath);
 	if (!out.is_open()) {
 		std::cerr << "Error: Could not open output file: " << outputPath << "\n";
