@@ -11,23 +11,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 🚨 CRITICAL STEP: Clones your repository into the runner directory!
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # Set up tools
     - name: Set up Build Tools
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential cmake ninja-build python3
 
-    # Build the compiler
     - name: Configure CMake
       run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 
     - name: Build Compiler
       run: cmake --build build --config Release
 
-    # Run the test suite script
     - name: Run Test Suite
-      run: python3 tests/test_runner.py
+      run: python3 Compiler1/tests/test_runner.py
