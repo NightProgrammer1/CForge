@@ -396,6 +396,15 @@ public:
 
 	void GenerateFunction(NodeProg& prog)
 	{
+
+		std::cerr << "--- DEBUG: ALL PARSED FUNCTIONS (" << prog.functions.size() << " total) ---\n";
+		for (const auto& func : prog.functions) {
+			std::cerr << "  Function: '" << func.name << "' (len: " << func.name.length() << ")\n";
+			for (unsigned char c : func.name) {
+				std::cerr << "    byte: " << (int)c << "\n";
+			}
+		}
+		std::cerr << "-------------------------------------------\n";
 		// 1. Verify main exists
 		auto main_it = std::find_if(
 			prog.functions.rbegin(),
