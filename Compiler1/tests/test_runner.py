@@ -40,8 +40,17 @@ def run_suite():
                 print(f"       stderr: {comp_res.stderr.strip()}")
                 failed += 1
                 continue
+            
+            obj_out_path = os.path.join(TEST_DIR, f"{base_name}.o")
+            nasm_res = subprocess.run(["nasm", "-f", "elf64", asm_out_path, "-o", obj_out_path], capture_output=True, text=True)
 
-            gcc_res = subprocess.run(["gcc", asm_out_path, "-o", bin_out_path], capture_output=True, text=True)
+            if nasm_res.returncode != 0:
+            print(f"[{RED}FAIL{RESET}] {file_name} -> NASM Assembly failed!")
+            print(f"       stderr: {nasm_res.stderr.strip()}")
+            failed += 1
+            continue
+
+            gcc_res = subprocess.run(["gcc", "-no-pie", obj_out_path, "-o", bin_out_path], capture_output=True, text=True)
             if gcc_res.returncode != 0:
                 print(f"[{RED}FAIL{RESET}] {file_name} -> Assembler/Linker (gcc) failed on generated .s code!")
                 print(f"       stderr: {gcc_res.stderr.strip()}")
