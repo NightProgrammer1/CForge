@@ -67,6 +67,9 @@ private:
 		case TokenType::plus:
 			return left + right;
 			break;
+		case TokenType::mult:
+			return left * right;
+			break;
 		case TokenType::sub:
 			return left - right;
 			break;

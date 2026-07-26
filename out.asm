@@ -4,25 +4,17 @@ _start:
     mov rdi, rax
     mov rax, 60
     syscall
-test:
-    push rbp
-    mov rbp, rsp
-    sub rsp, 16
-    mov QWORD [rbp - 8], rdi
-    mov rax, 1
-    push rax
-    pop rax
-    mov rsp, rbp
-    pop rbp
-    ret
 main:
     push rbp
     mov rbp, rsp
     sub rsp, 16
-    mov rax, 10
+    mov rax, 12
     push rax
     mov QWORD [rbp - 8], rax
-    mov rax, 2
+    mov rax, 15
+    push rax
+    mov QWORD [rbp - 16], rax
+    mov rax, 15
     push rax
     pop rax
     mov rsp, rbp
