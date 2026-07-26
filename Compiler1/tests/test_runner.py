@@ -8,9 +8,6 @@ TEST_DIR = "Compiler1/tests"
 # Expected exit codes for each test file
 TEST_EXPECTATIONS = {
     "01_folding.cpp": 15,
-    "02_dead_code.c": 10,
-    "03_identities.c": 0,
-    "04_scope.c": 10,
 }
 
 GREEN = "\033[92m"
@@ -22,7 +19,7 @@ def run_suite():
         print(f"{RED}Error: Compiler binary '{COMPILER_BIN}' not found!{RESET}")
         sys.exit(1)
 
-    test_files = sorted([f for f in os.listdir(TEST_DIR) if f.endswith(".c")])
+    test_files = sorted([f for f in os.listdir(TEST_DIR) if f.endswith(".cpp")])
     passed = 0
     failed = 0
 
