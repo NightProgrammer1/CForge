@@ -2,11 +2,15 @@ import os
 import subprocess
 import sys
 
-# Path to compiler binary
 COMPILER_BIN = "./build/Compiler1"
+TEST_DIR = "Compiler1/tests"
 
+# Expected exit codes for each test file
 TEST_EXPECTATIONS = {
     "01_folding.c": 15,
+    "02_dead_code.c": 10,
+    "03_identities.c": 0,
+    "04_scope.c": 10,
 }
 
 GREEN = "\033[92m"
@@ -15,41 +19,54 @@ RESET = "\033[0m"
 
 def run_suite():
     if not os.path.exists(COMPILER_BIN):
-        print(f"{RED}Error: Compiler binary '{COMPILER_BIN}' not found! Build your project first.{RESET}")
+        print(f"{RED}Error: Compiler binary '{COMPILER_BIN}' not found!{RESET}")
         sys.exit(1)
 
-    test_files = sorted([f for f in os.listdir("Compiler1/tests") if f.endswith(".c")])
+    test_files = sorted([f for f in os.listdir(TEST_DIR) if f.endswith(".c")])
     passed = 0
     failed = 0
 
     print("==================================================")
-    print("   RUNNING COMPILER OPTIMIZER TEST SUITE")
+    print("   RUNNING COMPILER TEST SUITE (ASM & LINK)")
     print("==================================================\n")
 
     for file_name in test_files:
-        file_path = os.path.join("tests", file_name)
-        
-        # Command to run your compiler pass
-        # e.g., ./build/my_compiler tests/01_folding.c -o out.s
-        compile_cmd = [COMPILER_BIN, file_path]
+        c_file_path = os.path.join(TEST_DIR, file_name)
+        asm_out_path = os.path.join(TEST_DIR, file_name.replace(".c", ".s"))
+        bin_out_path = os.path.join(TEST_DIR, file_name.replace(".c", ".exe"))
 
         try:
-            result = subprocess.run(compile_cmd, capture_output=True, text=True)
-
-            if result.returncode != 0:
-                print(f"[{RED}FAIL{RESET}] {file_name} -> Compiler crashed!")
-                print(f"       stderr: {result.stderr.strip()}")
+            comp_res = subprocess.run([COMPILER_BIN, c_file_path, "-o", asm_out_path], capture_output=True, text=True)
+            if comp_res.returncode != 0:
+                print(f"[{RED}FAIL{RESET}] {file_name} -> Your compiler failed!")
+                print(f"       stderr: {comp_res.stderr.strip()}")
                 failed += 1
                 continue
 
-            
-            expected_val = TEST_EXPECTATIONS.get(file_name, 0)
-            
-            print(f"[{GREEN}PASS{RESET}] {file_name:<25} (Expected: {expected_val})")
-            passed += 1
+            gcc_res = subprocess.run(["gcc", asm_out_path, "-o", bin_out_path], capture_output=True, text=True)
+            if gcc_res.returncode != 0:
+                print(f"[{RED}FAIL{RESET}] {file_name} -> Assembler/Linker (gcc) failed on generated .s code!")
+                print(f"       stderr: {gcc_res.stderr.strip()}")
+                failed += 1
+                continue
+
+            exec_res = subprocess.run([f"./{bin_out_path}"])
+            actual_exit = exec_res.returncode
+            expected_exit = TEST_EXPECTATIONS.get(file_name, 0)
+
+            # Clean up generated artifacts
+            if os.path.exists(asm_out_path): os.remove(asm_out_path)
+            if os.path.exists(bin_out_path): os.remove(bin_out_path)
+
+            if actual_exit == expected_exit:
+                print(f"[{GREEN}PASS{RESET}] {file_name:<25} (Exit code: {actual_exit})")
+                passed += 1
+            else:
+                print(f"[{RED}FAIL{RESET}] {file_name:<25} (Expected {expected_exit}, got {actual_exit})")
+                failed += 1
 
         except Exception as e:
-            print(f"[{RED}FAIL{RESET}] {file_name} -> Unexpected script error: {e}")
+            print(f"[{RED}FAIL{RESET}] {file_name} -> Test script error: {e}")
             failed += 1
 
     print("\n--------------------------------------------------")
