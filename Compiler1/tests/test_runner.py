@@ -8,6 +8,7 @@ TEST_DIR = "Compiler1/tests"
 # Expected exit codes for each test file
 TEST_EXPECTATIONS = {
     "01_folding.cpp": 15,
+    "02_folding.cpp": 15
 }
 
 GREEN = "\033[92m"
