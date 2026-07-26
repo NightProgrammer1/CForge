@@ -5,7 +5,6 @@ import sys
 COMPILER_BIN = "./build/Compiler1"
 TEST_DIR = "Compiler1/tests"
 
-# Expected exit codes for each test file
 TEST_EXPECTATIONS = {
     "01_folding.cpp": 15,
     "02_folding.cpp": 15
@@ -29,12 +28,13 @@ def run_suite():
     print("==================================================\n")
 
     for file_name in test_files:
+        base_name = os.path.splitext(file_name)[0]
         c_file_path = os.path.join(TEST_DIR, file_name)
-        asm_out_path = os.path.join(TEST_DIR, file_name.replace(".c", ".s"))
-        bin_out_path = os.path.join(TEST_DIR, file_name.replace(".c", ".exe"))
+        asm_out_path = os.path.join(TEST_DIR, f"{base_name}.s")
+        bin_out_path = os.path.join(TEST_DIR, f"{base_name}.out")
 
         try:
-            comp_res = subprocess.run([COMPILER_BIN, c_file_path, "-o", asm_out_path], capture_output=True, text=True)
+            comp_res = subprocess.run([COMPILER_BIN, c_file_path, asm_out_path], capture_output=True, text=True)
             if comp_res.returncode != 0:
                 print(f"[{RED}FAIL{RESET}] {file_name} -> Your compiler failed!")
                 print(f"       stderr: {comp_res.stderr.strip()}")
@@ -48,11 +48,10 @@ def run_suite():
                 failed += 1
                 continue
 
-            exec_res = subprocess.run([f"./{bin_out_path}"])
+            exec_res = subprocess.run([bin_out_path])
             actual_exit = exec_res.returncode
             expected_exit = TEST_EXPECTATIONS.get(file_name, 0)
 
-            # Clean up generated artifacts
             if os.path.exists(asm_out_path): os.remove(asm_out_path)
             if os.path.exists(bin_out_path): os.remove(bin_out_path)
 
