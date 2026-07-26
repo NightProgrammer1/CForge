@@ -1,7 +1,7 @@
 ﻿# CMakeList.txt : CMake project for Compiler1, include source and define
 # project specific logic here.
 #
-cmake_minimum_required(VERSION 4.2)
+cmake_minimum_required(VERSION 3.31.6)
 # Add source to this project's executable.
 add_executable (Compiler1 "Compiler1.cpp" "Compiler1.h" "tokenization.h" "parser.h" "Generator.h" "types.h" "SymbolTable.h" "SemanticAnalyzer.h" "Constant Folder.h" )
 
