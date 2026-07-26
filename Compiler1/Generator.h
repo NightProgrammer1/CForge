@@ -374,6 +374,32 @@ public:
 
 			
 			}
+			void operator()(const NodeStatementAssignment& assign)
+			{
+				bool found = false;
+				for (size_t i = generator->scopes.size(); i-- > 0; )
+				{
+					if (generator->scopes[i].variables.contains(assign.ident.value))
+					{
+						const auto& var = generator->scopes[i].variables.at(assign.ident.value);
+						size_t offset = var.stack_location * 8;
+
+						generator->GenerateExpression(*assign.expr);
+						generator->_output << "    mov QWORD [rbp - "
+							<< std::to_string(offset) << "], rax\n";
+
+						generator->push("rax");
+						found = true;
+						break;
+					}
+				}
+
+				if (!found)
+				{
+					std::cerr << "This variable (" << assign.ident.value << ") is undeclared." << std::endl;
+					exit(EXIT_FAILURE);
+				}
+			}
 		};
 		Visitor visit(this);
 		std::visit(visit, statement.stat);

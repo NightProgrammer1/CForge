@@ -117,7 +117,12 @@ struct NodeStatementReturn
     NodeExpr* expr;
 
 };
+struct NodeStatementAssignment
+{
+    Token ident;     
+    NodeExpr* expr;
 
+};
 
 struct NodeStatement
 {
@@ -128,7 +133,8 @@ struct NodeStatement
         NodeStatementIf,
         NodeStatementWhile,
         NodeStatementExpr,
-        NodeStatementReturn
+        NodeStatementReturn,
+        NodeStatementAssignment
     > stat;
 };
 

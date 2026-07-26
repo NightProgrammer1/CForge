@@ -205,6 +205,27 @@ private:
 					}
 				}
 			}
+
+			void operator()(const NodeStatementAssignment& assign)
+			{
+				auto var = analyzer->symbols.LookupVariable(assign.ident.value);
+				if (var.has_value())
+				{
+					Type exprType = analyzer->AnalyzeExpression(*assign.expr);
+					if (exprType != var->type) {
+						std::cerr << "Type Error: Cannot assign expression of type "
+							<< (exprType == Type::Bool ? "Bool" : "Int")
+							<< " to variable '" << var->name << "'\n";
+						exit(EXIT_FAILURE);
+					}
+
+					return;
+				}
+
+				std::cerr << "Semantic Error: Variable '" << assign.ident.value
+					<< "' has not been declared\n";
+				exit(EXIT_FAILURE);
+			}
 		};
 		Visitor visitor{ this };
 		std::visit(visitor, statement.stat);

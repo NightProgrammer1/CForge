@@ -335,13 +335,13 @@ public:
                 Consume(TokenType::equal);
                 
 
-                if (auto expr = ParseExpr())
+                if (auto expr = ParseLogicalOr())
                 {
                     statement_int.expr = expr;
                 }
                 else
                 {
-                    std::cerr << "Invalid (this) expression" << std::endl;
+                    std::cerr << "Invalid int variable" << std::endl;
                     exit(EXIT_FAILURE);
                 }
                 Consume(TokenType::semicolon);
@@ -425,7 +425,30 @@ public:
 
 
         }
-        
+        else if (TryMatch(TokenType::_identifier))
+        {
+            bool has_equal = PeekToken(1).has_value() && (PeekToken(1).value().type == TokenType::equal);
+            if (has_equal)
+            {
+                NodeStatementAssignment assign;
+                assign.ident = GetToken();
+
+                Consume(TokenType::equal);
+                if (auto expr = ParseLogicalOr())
+                {
+                    assign.expr = expr;
+                }
+                else
+                {
+                    std::cerr << "Invalid assignement expression" << std::endl;
+                    exit(EXIT_FAILURE);
+                }
+
+                Consume(TokenType::semicolon);
+                return _allocator->new_object<NodeStatement>(assign);
+            }
+
+        }
         if (auto expr = ParseBoolean())
         {
             Consume(TokenType::semicolon);

@@ -200,11 +200,11 @@ public:
                 _currentIndex++;
                 if(PeekChar().has_value() && PeekChar().value() == '=')
                 { 
-                    tokens.push_back({ TokenType::equal_equal, "==" });
+                    tokens.push_back({ TokenType::equal_equal, "==", lineCount });
                     _currentIndex++;
                     continue;
                 }
-                else { tokens.push_back({ TokenType::equal, "=" }); }
+                else { tokens.push_back({ TokenType::equal, "=" , lineCount}); }
             }
             else if (c == '+')
             {

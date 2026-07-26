@@ -1,5 +1,10 @@
+
 int main() {
-    int a = 2 + 5 * 2;
-    int b = a + 3;
-    return b;
+    int count = 0;
+    int sum = 0;
+    while (count < 5) {
+        sum = sum + count;
+        count++;
+    }
+    return sum;
 }
