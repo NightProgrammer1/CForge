@@ -15,27 +15,29 @@
 int main(int argc, char* argv[])
 {
 
-	if (argc < 2)
-	{
-		//std::cout << "Usage: " << argv[0] << " <filename.at>" << std::endl;
-	//	return 1;
+	if (argc < 2) {
+		std::cerr << "Usage: " << argv[0] << " <source_file.cpp> [output_file.asm]\n";
+		return EXIT_FAILURE;
 	}
 
-	std::fstream input("/mnt/c/Users/james/source/repos/Compiler1/test.cpp", std::ios::in);
+	std::string inputPath = argv[1];
+
+	std::ifstream input(inputPath);
+	if (!input.is_open()) {
+		std::cerr << "Error: Could not open input file: " << inputPath << "\n";
+		return EXIT_FAILURE;
+	}
+
 	std::stringstream buffer;
 	buffer << input.rdbuf();
+	input.close();
 
 
 	std::string content = buffer.str();
-
     Tokenizer tokenizer(content);
 
 	std::vector<Token> tokens = tokenizer.tokenize(content);
 
-	for (auto token : tokens)
-	{
-		std::cout << token.value << std::endl;
-	}
 
 
 	std::pmr::monotonic_buffer_resource arena(1024 * 1024);
@@ -60,13 +62,15 @@ int main(int argc, char* argv[])
 	
 	auto assembly = gen.GenerateProgram();
 
-    std::cout << assembly << std::endl;
-
-	std::fstream out("/mnt/c/Users/james/source/repos/Compiler1/out.asm", std::ios::out);
+	std::string outputPath = (argc >= 3) ? argv[2] : "out.asm";
+	std::ofstream out(outputPath);
+	if (!out.is_open()) {
+		std::cerr << "Error: Could not open output file: " << outputPath << "\n";
+		return EXIT_FAILURE;
+	}
 	out << assembly;
 
 	out.close();
-	input.close();
 
 	return 0;
 }
