@@ -365,3 +365,4 @@ FodyWeavers.xsd
 build/
 bin/
 out/
+/Compiler1/Compiler1.cpp
