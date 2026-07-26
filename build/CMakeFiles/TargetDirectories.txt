@@ -1,5 +1,0 @@
-/mnt/c/Users/james/source/repos/Compiler1/build/CMakeFiles/edit_cache.dir
-/mnt/c/Users/james/source/repos/Compiler1/build/CMakeFiles/rebuild_cache.dir
-/mnt/c/Users/james/source/repos/Compiler1/build/Compiler1/CMakeFiles/Compiler1.dir
-/mnt/c/Users/james/source/repos/Compiler1/build/Compiler1/CMakeFiles/edit_cache.dir
-/mnt/c/Users/james/source/repos/Compiler1/build/Compiler1/CMakeFiles/rebuild_cache.dir
