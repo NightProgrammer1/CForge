@@ -18,7 +18,7 @@ def run_suite():
         print(f"{RED}Error: Compiler binary '{COMPILER_BIN}' not found! Build your project first.{RESET}")
         sys.exit(1)
 
-    test_files = sorted([f for f in os.listdir("tests") if f.endswith(".c")])
+    test_files = sorted([f for f in os.listdir("Compiler1/tests") if f.endswith(".c")])
     passed = 0
     failed = 0
 
