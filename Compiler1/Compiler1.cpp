@@ -20,7 +20,7 @@ int main(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	std::string inputPath = argv[2];
+	std::string inputPath = argv[1];
 
 	std::ifstream input(inputPath);
 	if (!input.is_open()) {
