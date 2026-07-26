@@ -32,6 +32,12 @@ int main(int argc, char* argv[])
 
 	std::vector<Token> tokens = tokenizer.tokenize(content);
 
+	for (auto token : tokens)
+	{
+		std::cout << token.value << std::endl;
+	}
+
+
 	std::pmr::monotonic_buffer_resource arena(1024 * 1024);
 
 	// 2. Allocate AST nodes using pmr allocator
