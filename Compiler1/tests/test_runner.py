@@ -52,7 +52,11 @@ def run_suite():
                 continue
 
             # 3. Link object file with GCC
-            gcc_res = subprocess.run(["gcc", "-no-pie", obj_out_path, "-o", bin_out_path], capture_output=True, text=True)
+            gcc_res = subprocess.run(
+            ["gcc", "-nostartfiles", "-no-pie", "-Wl,-z,noexecstack", obj_out_path, "-o", bin_out_path], 
+            capture_output=True, 
+            text=True
+            )
             if gcc_res.returncode != 0:
                 print(f"[{RED}FAIL{RESET}] {file_name} -> Linker (gcc) failed on generated .o file!")
                 print(f"       stderr: {gcc_res.stderr.strip()}")
