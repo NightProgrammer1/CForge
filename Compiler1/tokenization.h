@@ -166,7 +166,7 @@ public:
                 _currentIndex++;
                 lineCount++;
             }
-            else if (isspace(c))
+            else if (isspace(c) || c == '\t' || c == '\r')
             {
                 _currentIndex++;
                 continue;
