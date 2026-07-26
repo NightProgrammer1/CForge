@@ -7,7 +7,7 @@ TEST_DIR = "Compiler1/tests"
 
 # Expected exit codes for each test file
 TEST_EXPECTATIONS = {
-    "01_folding.c": 15,
+    "01_folding.cpp": 15,
     "02_dead_code.c": 10,
     "03_identities.c": 0,
     "04_scope.c": 10,
