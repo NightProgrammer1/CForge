@@ -11,23 +11,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Checkout the repository code
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # 2. Set up modern GCC / C++20 environment
     - name: Set up Build Tools
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential cmake ninja-build python3
 
-    # 3. Configure and build the compiler using CMake
     - name: Configure CMake
-      run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+      run: cmake -B build -S Compiler1 -DCMAKE_BUILD_TYPE=Release
 
     - name: Build Compiler
       run: cmake --build build --config Release
 
-    # 4. Run your test suite script
     - name: Run Test Suite
-      run: python3 tests/test_runner.py
+      run: python3 Compiler1/tests/test_runner.py
