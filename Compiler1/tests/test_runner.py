@@ -3,15 +3,12 @@ import subprocess
 import sys
 
 # Path to compiler binary
-COMPILER_BIN = "./build/my_compiler"
+COMPILER_BIN = "./build/Compiler1"
 
-# Expected exit codes/outputs for each test file
-# (Adjust expected values based on your 10 tests)
 TEST_EXPECTATIONS = {
     "01_folding.c": 15,
 }
 
-# Terminal colors for clean output
 GREEN = "\033[92m"
 RED = "\033[91m"
 RESET = "\033[0m"
@@ -26,7 +23,7 @@ def run_suite():
     failed = 0
 
     print("==================================================")
-    print(" 🚀 RUNNING COMPILER OPTIMIZER TEST SUITE")
+    print("   RUNNING COMPILER OPTIMIZER TEST SUITE")
     print("==================================================\n")
 
     for file_name in test_files:
@@ -37,7 +34,6 @@ def run_suite():
         compile_cmd = [COMPILER_BIN, file_path]
 
         try:
-            # 1. Run your compiler's optimization pass
             result = subprocess.run(compile_cmd, capture_output=True, text=True)
 
             if result.returncode != 0:
@@ -46,15 +42,9 @@ def run_suite():
                 failed += 1
                 continue
 
-            # 2. OPTIONAL: If your compiler emits assembly/executable, run it and check exit code
-            # Example if compiling to dynamic executable:
-            # run_exec = subprocess.run(["./a.out"])
-            # actual_exit = run_exec.returncode
             
-            # For now, let's assume we check expected values from our map:
             expected_val = TEST_EXPECTATIONS.get(file_name, 0)
             
-            # Print success line
             print(f"[{GREEN}PASS{RESET}] {file_name:<25} (Expected: {expected_val})")
             passed += 1
 
@@ -66,7 +56,6 @@ def run_suite():
     print(f"Results: {GREEN}{passed} Passed{RESET}, {RED if failed else RESET}{failed} Failed{RESET}")
     print("--------------------------------------------------")
 
-    # Exit with code 1 if any tests failed so GitHub Actions CI catches it!
     if failed > 0:
         sys.exit(1)
 
