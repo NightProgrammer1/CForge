@@ -30,4 +30,4 @@ jobs:
 
     # 4. Run your test suite script
     - name: Run Test Suite
-      run: python3 test_runner.py
+      run: python3 tests/test_runner.py
