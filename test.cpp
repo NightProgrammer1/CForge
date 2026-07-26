@@ -1,10 +1,18 @@
-void abs(int n) {
-    if (n < 0) {
-        return n;
-    }
+
+bool test(bool a)
+{
+    return (false || true);
 }
 
 int main() {
-    abs(2);
-    return 0;
+
+
+    int a = 10;
+    while (a < 5)
+    {
+        a++;
+    }
+    
+    return 2;
+
 }

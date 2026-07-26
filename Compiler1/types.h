@@ -10,25 +10,25 @@ struct NodeExprBinary
 {
     Token op;
 
-    std::unique_ptr<NodeExpr> left;
-    std::unique_ptr<NodeExpr> right;
+    NodeExpr* left;
+    NodeExpr* right;
 };
 
 struct NodeExprUnary
 {
     Token op;
-    std::unique_ptr<NodeExpr> expr;
+    NodeExpr* expr;
 };
 
 struct NodeExprCompare
 {
     Token op;
-    std::unique_ptr<NodeExpr> left;
-    std::unique_ptr<NodeExpr> right;
+    NodeExpr* left;
+    NodeExpr* right;
 };
 struct NodeExprIntLit
 {
-    Token int_lit;
+    int value;
 };
 struct NodeExprBoolLit
 {
@@ -37,7 +37,7 @@ struct NodeExprBoolLit
 
 struct NodeExprIndent
 {
-    Token ident;
+    std::string name;
 };
 
 struct NodeExprVoid
@@ -47,8 +47,8 @@ struct NodeExprVoid
 
 struct NodeExprCall
 {
-    std::vector<std::unique_ptr<NodeExpr>> args;
-    Token name;
+    std::vector<NodeExpr*> args;
+    std::string name;
 };
 
 struct NodeExpr
@@ -68,7 +68,7 @@ struct NodeExpr
 
 struct NodeStatementExit
 {
-    std::unique_ptr<NodeExpr> expr;
+    NodeExpr* expr;
 };
 
 
@@ -81,8 +81,8 @@ enum class Type {
 struct NodeStatementVar
 {
     Type type;
-    Token ident;
-    std::unique_ptr<NodeExpr> expr;
+    std::string name;
+    NodeExpr* expr;
 };
 
 struct NodeStatement;
@@ -90,31 +90,31 @@ struct NodeStatement;
 
 struct NodeBlock
 {
-    std::vector<std::unique_ptr<NodeStatement>> statements;
+    std::vector<NodeStatement*> statements;
 
 };
 
 struct NodeStatementIf
 {
-    std::unique_ptr<NodeExpr> condition;
+    NodeExpr* condition;
     NodeBlock thenBlock;
     std::optional<NodeBlock> elseBlock;
 };
 
 struct NodeStatementWhile
 {
-    std::unique_ptr<NodeExpr> condition;
+    NodeExpr* condition;
     NodeBlock block;
 };
 
 struct NodeStatementExpr
 {
-    std::unique_ptr<NodeExpr> expr;
+    NodeExpr* expr;
 };
 \
 struct NodeStatementReturn
 {
-    std::unique_ptr<NodeExpr> expr;
+    NodeExpr* expr;
 
 };
 
@@ -136,11 +136,11 @@ struct NodeStatement
 struct Parameter
 {
     Type type;
-    Token ident;
+    std::string name;
 };
 struct NodeFunction
 {
-    Token name;
+    std::string name;
     std::vector<Parameter> parameters;
     Type retType;
     std::optional<NodeBlock> body;

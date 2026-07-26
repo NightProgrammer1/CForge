@@ -1,15 +1,15 @@
 #pragma once
 #include "types.h"
-
+#include <memory_resource>
 
 class Parser
 {
 public:
-	Parser(const std::vector<Token>& tokens) : _tokens(tokens)
+	Parser(const std::vector<Token>& tokens, std::pmr::polymorphic_allocator<NodeExpr>& allocator) : _tokens(tokens), _allocator(&allocator)
 	{
 
 	}
-    std::unique_ptr<NodeExpr> ParseFactor()
+    NodeExpr* ParseFactor()
     {
         auto p = PeekToken();
 
@@ -17,39 +17,38 @@ public:
 
         if (p && p->type == TokenType::int_literal)
         {
-            return  std::make_unique<NodeExpr>(NodeExpr{
-                NodeExprIntLit{
-                    .int_lit = GetToken()
-                }
-            });
+            return _allocator->new_object<NodeExpr>(NodeExprIntLit{
+                    std::stoi(GetToken().value)
+                });
+           
         }
         if (Match(TokenType::false_literal) )
         {
-            return  std::make_unique<NodeExpr>(NodeExpr{
+            return  _allocator->new_object<NodeExpr>(
                 NodeExprBoolLit{
                     .value = false
                 }
-                });
+                );
         }
         else if (Match(TokenType::true_literal))
         {
-            return  std::make_unique<NodeExpr>(NodeExpr{
+            return  _allocator->new_object<NodeExpr>(
                 NodeExprBoolLit{
                     .value = true
                 }
-                });
+                );
         }
 
         if (Match(TokenType::_not))
         {
-            Token identifier = GetToken();
+            std::string identifier = GetToken().value;
 
-            auto identExpr = std::make_unique<NodeExpr>();
+            auto identExpr = _allocator->new_object<NodeExpr>();
             identExpr->var = NodeExprIndent{
-                .ident = identifier
+                identifier
             };
 
-            auto unary = std::make_unique<NodeExpr>();
+            auto unary = _allocator->new_object<NodeExpr>();
             unary->var = NodeExprUnary{
                 Token{TokenType::_not},
                 std::move(identExpr)
@@ -59,16 +58,16 @@ public:
         }
         if (p && p->type == TokenType::_identifier)
         {
-            Token identifier = GetToken();
+            std::string identifier = GetToken().value;
 
-            auto identExpr = std::make_unique<NodeExpr>();
+            auto identExpr = _allocator->new_object<NodeExpr>();
             identExpr->var = NodeExprIndent{
-                .ident = identifier
+                identifier
             };
 
             if (Match(TokenType::open_paren)) {
 
-                auto expr = std::make_unique<NodeExpr>();
+                auto expr = _allocator->new_object<NodeExpr>();
 
                 NodeExprCall funcCall;
                 funcCall.name = identifier;
@@ -86,7 +85,7 @@ public:
                     }
                     else {
                         std::cerr << "Invalid expression in function call '"
-                            << identifier.value << "'" << std::endl;
+                            << identifier << "'" << std::endl;
                         exit(EXIT_FAILURE);
                     }
 
@@ -104,7 +103,7 @@ public:
 
             if (Match(TokenType::increment))
             {
-                auto unary = std::make_unique<NodeExpr>();
+                auto unary = _allocator->new_object<NodeExpr>();
                 unary->var = NodeExprUnary{
                     Token{TokenType::increment},
                     std::move(identExpr)
@@ -127,7 +126,7 @@ public:
 
         return {};
     }
-    std::unique_ptr<NodeExpr> ParseTerm()
+    NodeExpr* ParseTerm()
     {
 		//Handle the case where we have a factor, and then we have a binary operator (* or /) that combines two factors.
         auto left = ParseFactor();
@@ -138,7 +137,7 @@ public:
             Token op = GetToken();
             auto right = ParseFactor();
 
-            auto binary = std::make_unique<NodeExpr>();
+            auto binary = _allocator->new_object<NodeExpr>();
 
             binary->var = NodeExprBinary{
                 op,
@@ -152,7 +151,7 @@ public:
 
         return left;
     }
-    std::unique_ptr<NodeExpr> ParseExpr()
+    NodeExpr* ParseExpr()
     {
         auto left = ParseTerm();
 
@@ -162,7 +161,7 @@ public:
             Token op = GetToken();
             auto right = ParseTerm();
 
-            auto binary = std::make_unique<NodeExpr>();
+            auto binary = _allocator->new_object<NodeExpr>();
 
             binary->var = NodeExprBinary{
                 op,
@@ -177,7 +176,7 @@ public:
 
         return left;
     }
-    std::unique_ptr<NodeExpr> ParseComparison()
+    NodeExpr* ParseComparison()
     {
 		//Handle the case where we have a comparison expression, and then we have a comparison operator (<, >, ==) that combines two expressions.
         auto left = ParseExpr();
@@ -191,7 +190,7 @@ public:
         {
             Token op = GetToken();
             auto right = ParseExpr();
-            auto binary = std::make_unique<NodeExpr>();
+            auto binary = _allocator->new_object<NodeExpr>();
 
             binary->var = NodeExprCompare{
                op,
@@ -205,7 +204,7 @@ public:
 
         return left;
     }
-    std::unique_ptr<NodeExpr> ParseBoolean()
+    NodeExpr* ParseBoolean()
     {
         auto left = ParseLogicalAnd();
 
@@ -214,7 +213,7 @@ public:
             Token op = GetToken();
             auto right = ParseLogicalAnd();
 
-            auto binary = std::make_unique<NodeExpr>();
+            auto binary = _allocator->new_object<NodeExpr>();
             binary->var = NodeExprCompare{
                 op,
                 std::move(left),
@@ -227,7 +226,7 @@ public:
         return left;
     }
 
-    std::unique_ptr<NodeExpr> ParseLogicalAnd()
+    NodeExpr* ParseLogicalAnd()
     {
         auto left = ParseComparison();
 
@@ -240,7 +239,7 @@ public:
         {
             Token op = GetToken();
             auto right = ParseComparison();
-            auto binary = std::make_unique<NodeExpr>();
+            auto binary = _allocator->new_object<NodeExpr>();
 
             binary->var = NodeExprCompare{
                op,
@@ -254,7 +253,7 @@ public:
 
         return left;
     }
-    std::unique_ptr<NodeExpr> ParseLogicalOr()
+    NodeExpr* ParseLogicalOr()
     {
         auto left = ParseLogicalAnd();
 
@@ -267,7 +266,7 @@ public:
         {
             Token op = GetToken();
             auto right = ParseLogicalAnd();
-            auto binary = std::make_unique<NodeExpr>();
+            auto binary = _allocator->new_object<NodeExpr>(); 
 
             binary->var = NodeExprCompare{
                op,
@@ -303,7 +302,7 @@ public:
 
         return block;
     }
-    std::unique_ptr<NodeStatement> ParseStat()
+    NodeStatement* ParseStat()
     {
         if (Match(TokenType::exit))
         {
@@ -320,13 +319,15 @@ public:
             }
             Consume(TokenType::semicolon);
 
-            return std::make_unique <NodeStatement>(NodeStatement{ .stat = std::move(exit_node) });
+            return _allocator->new_object<NodeStatement>( exit_node );
         }
         else if (Match(TokenType::_int))
         {
             bool has_identifier = PeekToken().has_value() && (PeekToken().value().type == TokenType::_identifier);
             bool has_equal = PeekToken(1).has_value() && (PeekToken(1).value().type == TokenType::equal);
-            auto statement_int = NodeStatementVar{ .ident = GetToken() };
+            bool has_semicolon = PeekToken(1).has_value() && (PeekToken(1).value().type == TokenType::semicolon);
+
+            auto statement_int = NodeStatementVar{ .name = GetToken().value };
 
             if (has_identifier && has_equal)
             {
@@ -336,7 +337,7 @@ public:
 
                 if (auto expr = ParseExpr())
                 {
-                    statement_int.expr = std::move(expr);
+                    statement_int.expr = expr;
                 }
                 else
                 {
@@ -345,10 +346,16 @@ public:
                 }
                 Consume(TokenType::semicolon);
                 
-                return std::make_unique <NodeStatement>(NodeStatement{ .stat = std::move(statement_int) });
+                return _allocator->new_object<NodeStatement>(statement_int);
             }
 
-            
+            else if (has_identifier && has_semicolon) {
+                Consume(TokenType::semicolon);
+                auto expr = _allocator->new_object<NodeExpr>(NodeExprIntLit{});
+                statement_int.expr = expr;
+                return _allocator->new_object<NodeStatement>(statement_int);
+            }
+
         }
         else if (Match(TokenType::_bool))
         {
@@ -357,7 +364,7 @@ public:
                 std::cerr << "Missing variable name after bool" << std::endl;
             }
 
-            auto statement_var = NodeStatementVar{ .ident = GetToken()};
+            auto statement_var = NodeStatementVar{ .name = GetToken().value};
             statement_var.type = Type::Bool;
 
             Consume(TokenType::equal);
@@ -373,7 +380,7 @@ public:
                 exit(EXIT_FAILURE);
             }
             Consume(TokenType::semicolon);
-            return std::make_unique <NodeStatement>(NodeStatement{ .stat = std::move(statement_var) });
+            return _allocator->new_object<NodeStatement>(statement_var);
 
 
         }
@@ -389,7 +396,7 @@ public:
         {
 
             auto block = ParseBlock();
-            return std::make_unique< NodeStatement>(NodeStatement{.stat = std::move(block)});
+            return _allocator->new_object<NodeStatement>(block);
         }
         else if (Match(TokenType::_return))
         {
@@ -402,9 +409,9 @@ public:
             }
             else if (Match(TokenType::semicolon))
             {
-                auto e = std::make_unique<NodeExpr>(NodeExpr{ .var = NodeExprVoid{} });
+                auto e = _allocator->new_object<NodeExpr>(NodeExprVoid{});
                 ret.expr = std::move(e);
-               return std::make_unique <NodeStatement>(NodeStatement{ .stat = std::move(ret) });
+               return _allocator->new_object<NodeStatement>(ret);
             }
             else
             {
@@ -414,7 +421,7 @@ public:
 
             Consume(TokenType::semicolon);
 
-            return std::make_unique <NodeStatement>(NodeStatement{ .stat = std::move(ret) });
+            return _allocator->new_object<NodeStatement>(ret);
 
 
         }
@@ -424,7 +431,7 @@ public:
             Consume(TokenType::semicolon);
             NodeStatementExpr p;
             p.expr = std::move(expr);
-            return std::make_unique<NodeStatement>(NodeStatement{ .stat = std::move(p) });
+            return _allocator->new_object<NodeStatement>(p);
         }
         return {};
     }
@@ -441,7 +448,12 @@ public:
         {
             if (Match(TokenType::_int))
             {
-                Parameter par = { Type::Int, GetToken() };
+                Parameter par = { Type::Int, GetToken().value };
+                parameterList.push_back(par);
+            }
+            else if (Match(TokenType::_bool))
+            {
+                Parameter par = { Type::Bool, GetToken().value };
                 parameterList.push_back(par);
             }
 
@@ -483,7 +495,7 @@ public:
 
         func.retType = ParseType(GetToken());
 
-        func.name = Token{TokenType::_identifier, Consume(TokenType::_identifier).value().value};
+        func.name = Consume(TokenType::_identifier).value().value;
 
         func.parameters = ParseParameter();
 
@@ -524,7 +536,7 @@ public:
     }
     
    
-    std::unique_ptr<NodeStatement> ParseIf()
+    NodeStatement* ParseIf()
     {
 
         NodeStatementIf _if;
@@ -561,13 +573,9 @@ public:
 
 
 
-        return std::make_unique<NodeStatement>(
-            NodeStatement{
-                .stat = std::move(_if)
-            }
-        );
+        return _allocator->new_object<NodeStatement>(_if);
     }
-	std::unique_ptr<NodeStatement> ParseWhile()
+	NodeStatement* ParseWhile()
 	{
 		NodeStatementWhile _while;
 		if (auto node_expr = ParseBoolean())
@@ -583,11 +591,8 @@ public:
 		_while.block = std::move(ParseBlock());
 
 
-		return std::make_unique<NodeStatement>(
-			NodeStatement{
-				.stat = std::move(_while)
-			}
-		);
+        return _allocator->new_object<NodeStatement>(_while);
+		
 	}
 
 private:
@@ -714,4 +719,6 @@ private:
 
     int _currentIndex = 0;
 	std::vector<Token> _tokens;
+
+    std::pmr::polymorphic_allocator<NodeExpr>* _allocator;
 };

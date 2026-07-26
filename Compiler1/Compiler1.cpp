@@ -9,7 +9,7 @@
 #include <vector>
 #include <algorithm>
 #include "SemanticAnalyzer.h"
-
+#include "Constant Folder.h"
 
 
 int main(int argc, char* argv[])
@@ -32,17 +32,26 @@ int main(int argc, char* argv[])
 
 	std::vector<Token> tokens = tokenizer.tokenize(content);
 
-	Parser parser(tokens);
+	std::pmr::monotonic_buffer_resource arena(1024 * 1024);
+
+	// 2. Allocate AST nodes using pmr allocator
+	std::pmr::polymorphic_allocator<NodeExpr> alloc(&arena);
+
+	Parser parser(tokens, alloc);
 
 	auto exitNode = parser.ParseProgram();
 
 	SemanticAnalyzer analyzer(exitNode.value());
-
-
 	analyzer.Analyze();
+
+
+	auto folder = ConstantFolder(exitNode.value(), alloc);
+	
+
+	folder.FoldProgram();
 	Generator gen(std::move(exitNode.value()));
 
-
+	
 	auto assembly = gen.GenerateProgram();
 
     std::cout << assembly << std::endl;

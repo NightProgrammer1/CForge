@@ -26,7 +26,7 @@ public:
 			void operator()(const NodeExprIntLit& expr)
 			{
 
-				generator->_output << "    mov rax, " << expr.int_lit.value << "\n";
+				generator->_output << "    mov rax, " << expr.value << "\n";
 				generator->push("rax");
 
 			}
@@ -35,9 +35,9 @@ public:
 				bool found = false;
 				for (size_t i = generator->scopes.size(); i-- > 0; )
 				{
-					if (generator->scopes[i].variables.contains(stat.ident.value))
+					if (generator->scopes[i].variables.contains(stat.name))
 					{
-						const auto& var = generator->scopes[i].variables.at(stat.ident.value);
+						const auto& var = generator->scopes[i].variables.at(stat.name);
 						size_t offset = var.stack_location * 8;
 
 						generator->_output << "    mov rax, QWORD [rbp - "
@@ -51,7 +51,7 @@ public:
 
 				if (!found)
 				{
-					std::cerr << "This variable (" << stat.ident.value << ") is undeclared." << std::endl;
+					std::cerr << "This variable (" << stat.name << ") is undeclared." << std::endl;
 					exit(EXIT_FAILURE);
 				}
 			}
@@ -212,7 +212,7 @@ public:
 				// Ensure the operand is an identifier (variable)
 				if (auto identExpr = std::get_if<NodeExprIndent>(&expr.expr->var))
 				{
-					const std::string& varName = identExpr->ident.value;
+					const std::string& varName = identExpr->name;
 
 					// 1. Locate the variable on the stack
 					size_t varOffset = generator->GetVariableOffset(varName);
@@ -250,12 +250,12 @@ public:
 					generator->root.functions.begin(),
 					generator->root.functions.end(),
 					[&](const NodeFunction& func) {
-						return func.name.value == call.name.value;
+						return func.name == call.name;
 					}
 				);
 
 				if (function == generator->root.functions.end()) {
-					std::cerr << "Undeclared function: " << call.name.value << std::endl;
+					std::cerr << "Undeclared function: " << call.name << std::endl;
 					exit(EXIT_FAILURE);
 				}
 
@@ -272,7 +272,7 @@ public:
 						default:
 							break;
 						}
-						paramsDef <<  " " << parms.ident.value << ", ";
+						paramsDef <<  " " << parms.name << ", ";
 					}
 
 					std::string def = paramsDef.str();
@@ -281,7 +281,7 @@ public:
 					}
 
 					std::cerr << "The number of parameters does not match function definition: "
-						<< call.name.value << "(" << def << ")" << std::endl;
+						<< call.name << "(" << def << ")" << std::endl;
 					exit(EXIT_FAILURE);
 				}
 				for (size_t i = 0; i < call.args.size(); ++i)
@@ -296,7 +296,7 @@ public:
 						generator->pop(generator->PARAM_REGS[i]);
 					}
 				}
-				generator->_output << "    call " << call.name.value << "\n";
+				generator->_output << "    call " << call.name << "\n";
 				generator->push("rax");
 			}
 			void operator()(const NodeExprVoid&){}
@@ -323,15 +323,15 @@ public:
 			void operator()(const NodeStatementVar& stat)
 			{
 				
-				bool exist = generator->scopes.back().variables.contains(stat.ident.value);
+				bool exist = generator->scopes.back().variables.contains(stat.name);
 				if (exist)
 				{
-					std::cerr << "This variable is arealdy declared: " << stat.ident.value << std::endl;
+					std::cerr << "This variable is arealdy declared: " << stat.name << std::endl;
 					exit(EXIT_FAILURE);
 				}
 				
 				size_t var_slot = ++generator->_varCount;
-				generator->scopes.back().variables.insert({ stat.ident.value, Var{.stack_location = var_slot} });
+				generator->scopes.back().variables.insert({ stat.name, Var{.stack_location = var_slot} });
 
 				generator->GenerateExpression(*(stat.expr));
 
@@ -378,6 +378,9 @@ public:
 		Visitor visit(this);
 		std::visit(visit, statement.stat);
 	}
+
+
+
 	std::string GenerateProgram()
 	{
 		_output << "global _start\n_start:\n";
@@ -398,7 +401,7 @@ public:
 			prog.functions.rbegin(),
 			prog.functions.rend(),
 			[](const NodeFunction& func) {
-				return func.name.value == "main";
+				return func.name == "main";
 			}
 		);
 
@@ -422,7 +425,7 @@ public:
 			scopes.clear();
 			scopes.emplace_back(); 
 
-			_output << func.name.value << ":\n";
+			_output << func.name<< ":\n";
 
 			// Prologue
 			push("rbp");
@@ -441,7 +444,7 @@ public:
 				size_t slot = ++_varCount; // Reserve slot 1, 2, ...
 				size_t offset = slot * 8;
 
-				scopes.back().variables.insert({ param.ident.value, Var{.stack_location = slot} });
+				scopes.back().variables.insert({ param.name, Var{.stack_location = slot} });
 
 				_output << "    mov QWORD [rbp - " << std::to_string(offset)
 					<< "], " << PARAM_REGS[i] << "\n";

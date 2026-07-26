@@ -29,19 +29,19 @@ private:
 				return Type::Bool;
 			}
 			Type operator()(const NodeExprCall& call) {
-				auto funcSymbol = analyzer->symbols.LookupFunction(call.name.value);
+				auto funcSymbol = analyzer->symbols.LookupFunction(call.name);
 
 
 
 				if (!funcSymbol.has_value()) {
 					std::cerr << "Semantic Error: Call to undeclared function '"
-						<< call.name.value << "'\n";
+						<< call.name << "'\n";
 					exit(EXIT_FAILURE);
 				}
 
 				if (call.args.size() != funcSymbol->paramTypes.size()) {
 					std::cerr << "Semantic Error: Incorrect argument count for function '"
-						<< call.name.value << "'\n";
+						<< call.name << "'\n";
 					exit(EXIT_FAILURE);
 				}
 				for (size_t i = 0; i < call.args.size(); ++i) {
@@ -49,7 +49,7 @@ private:
 					Type expectedType = funcSymbol->paramTypes[i];
 					if (argType != expectedType) {
 						std::cerr << "Type Error: Argument " << i + 1 << " in call to '"
-							<< call.name.value << "' has mismatched type.\n";
+							<< call.name << "' has mismatched type.\n";
 						exit(EXIT_FAILURE);
 					}
 				}
@@ -58,12 +58,12 @@ private:
 			
 			}
 			Type operator()(const NodeExprIndent& stat) {
-				auto symbol = analyzer->symbols.LookupVariable(stat.ident.value);
+				auto symbol = analyzer->symbols.LookupVariable(stat.name);
 
 				if (!symbol.has_value())
 				{
 					std::cerr << "Semantic Error: Undeclared variable '"
-						      << stat.ident.value << "'\n";
+						      << stat.name << "'\n";
 
 					exit(EXIT_FAILURE);
 				}
@@ -135,12 +135,12 @@ private:
 				if (exprType != declaredType) {
 					std::cerr << "Type Error: Cannot assign expression of type "
 						<< (exprType == Type::Bool ? "Bool" : "Int")
-						<< " to variable '" << stat.ident.value << "'\n";
+						<< " to variable '" << stat.name << "'\n";
 					exit(EXIT_FAILURE);
 				}
 
-				if (!analyzer->symbols.DeclareVariable(stat.ident.value, declaredType)) {
-					std::cerr << "Semantic Error: Variable '" << stat.ident.value
+				if (!analyzer->symbols.DeclareVariable(stat.name, declaredType)) {
+					std::cerr << "Semantic Error: Variable '" << stat.name
 						<< "' already declared in this scope.\n";
 					exit(EXIT_FAILURE);
 				}
@@ -217,7 +217,7 @@ private:
 	void AnalyzeFunction(NodeFunction& func)
 	{
 		
-		currentFunctionName = func.name.value; 
+		currentFunctionName = func.name; 
 		currentFunctionReturnType = func.retType;
 		currentFunctionHasReturn = false;
 
@@ -226,7 +226,7 @@ private:
 		symbols.EnterScope();
 		for (const auto& var : func.parameters)
 		{
-			symbols.DeclareVariable(var.ident.value, var.type);
+			symbols.DeclareVariable(var.name, var.type);
 		}
 
 		symbols.stackOffset;
@@ -234,11 +234,11 @@ private:
 
 
 		if (func.retType != Type::Void && !currentFunctionHasReturn) {
-			std::cerr << "Semantic Error: Function '" << func.name.value
+			std::cerr << "Semantic Error: Function '" << func.name
 				<< "' has non-void return type but is missing a return statement.\n";
 			exit(EXIT_FAILURE);
 		}
-		symbols.SetFunctionHasReturn(func.name.value, currentFunctionHasReturn);
+		symbols.SetFunctionHasReturn(func.name, currentFunctionHasReturn);
 		// Align total stack size to 16 bytes
 		size_t total_bytes = symbols.stackOffset;
 		if (total_bytes % 16 != 0) {
@@ -271,23 +271,23 @@ private:
 				paramTypes.push_back(param.type);
 			}
 
-			auto existing = symbols.LookupFunction(func.name.value);
+			auto existing = symbols.LookupFunction(func.name);
 
 
 			if (existing.has_value()) {
 				// Check for prototype mismatch
 				if (existing->paramTypes != paramTypes || existing->returnType != func.retType) {
-					std::cerr << "Error: Redeclaration of " << func.name.value << " with different signature!\n";
+					std::cerr << "Error: Redeclaration of " << func.name << " with different signature!\n";
 					exit(EXIT_FAILURE);
 				}
 				if (func.body.has_value() && existing->hasBody) {
-					std::cerr << "Error: Redefinition of function " << func.name.value << "\n";
+					std::cerr << "Error: Redefinition of function " << func.name << "\n";
 					exit(EXIT_FAILURE);
 				}
 			}
 
 			bool hasBody = func.body.has_value();
-			symbols.DeclareFunction(func.name.value, func.retType, paramTypes, hasBody);
+			symbols.DeclareFunction(func.name, func.retType, paramTypes, hasBody);
 		}
 
 		for (auto& func : prog.functions)
