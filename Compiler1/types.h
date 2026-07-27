@@ -80,9 +80,9 @@ enum class Type {
 
 struct NodeStatementVar
 {
-    Type type;
     std::string name;
     NodeExpr* expr;
+    Type type;
 };
 
 struct NodeStatement;

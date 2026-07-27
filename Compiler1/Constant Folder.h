@@ -5,6 +5,8 @@
 #include <unordered_map>
 #include <vector>
 #include <memory_resource>
+#include "ASTEvaluator.h"
+
 
 class ConstantFolder
 {
@@ -44,10 +46,31 @@ private:
 		}
 		else if (auto* funcCall = std::get_if<NodeExprCall>(&expr->var))
 		{
-			for (auto arg : funcCall->args)
-			{
-				arg->var = Fold(arg)->var;
+			std::vector<int> argValues;
+			for (NodeExpr* arg : funcCall->args) {
+				NodeExpr* foldedArg = Fold(arg);
+				if (auto lit = std::get_if<NodeExprIntLit>(&foldedArg->var)) {
+					argValues.push_back(lit->value);
+				}
+				else {
+					return {};
+				}
 			}
+			auto function = std::find_if(ast->functions.begin(), ast->functions.end(), [&](NodeFunction& func) {return (func.name == funcCall->name) ? true : false; });
+			if (function == ast->functions.end() || !function->body.has_value()) return {};
+
+
+			NodeBlock clonedBody = CloneBlock(*function->body);
+			EnterScope();
+
+			std::optional<int> returnValue = EvaluateFunctionCall(*function, argValues);
+
+			ExitScope();
+
+			if (returnValue.has_value()) {
+				return _allocator->new_object<NodeExpr>(NodeExprIntLit{ *returnValue });
+			}
+			return expr;
 		}
 		else if (auto* unary = std::get_if<NodeExprUnary>(&expr->var))
 		{
@@ -344,6 +367,9 @@ private:
 			std::optional<NodeStatement> operator()(NodeStatementReturn& _ret)
 			{
 				_ret.expr = analyzer->Fold(_ret.expr);
+				auto value = std::get_if<NodeExprIntLit>(&_ret.expr->var);
+				if (value) analyzer->_lastReturnValue = value->value ;
+				else analyzer->_lastReturnValue = { };
 				return NodeStatement{ _ret };
 			}
 			std::optional<NodeStatement> operator()(NodeStatementAssignment& assign)
@@ -441,8 +467,114 @@ private:
 		}
 	}
 
+	std::optional<int> EvaluateFunctionCall(const NodeFunction& func, const std::vector<int>& argValues) {
+		std::unordered_map<std::string, int> localEnv;
+		for (size_t i = 0; i < func.parameters.size(); ++i) {
+			localEnv[func.parameters[i].name] = argValues[i];
+		}
+
+		ASTEvaluator evaluator;
+		EvalResult result = evaluator.EvaluateBlock(func.body.value(), localEnv);
+
+		if (result.status == EvalResult::Status::Return) {
+			return result.value;
+		}
+
+		return std::nullopt; // Evaluation failed or did not return
+	}
+
+
+	NodeExpr* CloneExpr(const NodeExpr* expr) {
+		if (!expr) return nullptr;
+
+		NodeExpr* cloned = _allocator->new_object<NodeExpr>(expr->var);
+
+		if (auto* bin = std::get_if<NodeExprBinary>(&cloned->var)) {
+			bin->left = CloneExpr(bin->left);
+			bin->right = CloneExpr(bin->right);
+		}
+		else if (auto* comp = std::get_if<NodeExprCompare>(&cloned->var)) {
+			comp->left = CloneExpr(comp->left);
+			comp->right = CloneExpr(comp->right);
+		}
+		else if (auto* call = std::get_if<NodeExprCall>(&cloned->var)) {
+			for (auto& arg : call->args) {
+				arg = CloneExpr(arg);
+			}
+		}
+
+		return cloned;
+	}
+
+	NodeStatement* CloneStatement(const NodeStatement* stat)
+	{
+		if (!stat) return nullptr;
+
+		struct StatementCloner {
+			ConstantFolder* analyzer;
+
+			NodeStatement operator()(const NodeStatementExit& s) {
+				return NodeStatement{ NodeStatementExit{ analyzer->CloneExpr(s.expr) } };
+			}
+			NodeStatement operator()(const NodeStatementReturn& s) {
+				return NodeStatement{ NodeStatementReturn{ analyzer->CloneExpr(s.expr) } };
+			}
+			NodeStatement operator()(const NodeStatementExpr& s) {
+				return NodeStatement{ NodeStatementExpr{ analyzer->CloneExpr(s.expr) } };
+			}
+			NodeStatement operator()(const NodeStatementVar& s) {
+				return NodeStatement{ NodeStatementVar{ s.name, analyzer->CloneExpr(s.expr) } };
+			}
+			NodeStatement operator()(const NodeStatementAssignment& s) {
+				return NodeStatement{ NodeStatementAssignment{ s.ident, analyzer->CloneExpr(s.expr) } };
+			}
+			NodeStatement operator()(const NodeBlock& block) {
+				return NodeStatement{ analyzer->CloneBlock(block)};
+			}
+			NodeStatement operator()(const NodeStatementIf& _if) {
+				NodeStatementIf clonedIf;
+				clonedIf.condition = analyzer->CloneExpr(_if.condition);
+				clonedIf.thenBlock = analyzer->CloneBlock(_if.thenBlock);
+				if (_if.elseBlock.has_value()) {
+					clonedIf.elseBlock = analyzer->CloneBlock(_if.elseBlock.value());
+				}
+				return NodeStatement{ clonedIf };
+			}
+			NodeStatement operator()(const NodeStatementWhile& _while) {
+				NodeStatementWhile clonedWhile;
+				clonedWhile.condition = analyzer->CloneExpr(_while.condition);
+				clonedWhile.block = analyzer->CloneBlock(_while.block);
+				return NodeStatement{ clonedWhile };
+			}
+		};
+
+		StatementCloner cloner{ this };
+		NodeStatement clonedStat = std::visit(cloner, stat->stat);
+
+		return _allocator->new_object<NodeStatement>( std::move(clonedStat));
+	}
+
+	NodeBlock CloneBlock(const NodeBlock& body)
+	{
+		NodeBlock newBlock;
+		newBlock.statements.reserve(body.statements.size());
+
+		for (const NodeStatement* stat : body.statements) {
+			if (stat) {
+				newBlock.statements.push_back(CloneStatement(stat));
+			}
+		}
+
+		return newBlock;
+	}
+
 	void EnterScope() { constants.push_back({}); }
 	void ExitScope() { constants.pop_back(); }
+
+	std::optional<int> GetLastReturnValue()
+	{
+		return _lastReturnValue;
+	}
 
 	struct Scope
 	{
@@ -453,4 +585,6 @@ private:
 	NodeProg* ast;
 	std::pmr::polymorphic_allocator<NodeExpr>* _allocator;
 	std::vector<Scope> constants;
+
+	std::optional<int> _lastReturnValue;
 };

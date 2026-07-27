@@ -10,7 +10,8 @@ TEST_EXPECTATIONS = {
     "fold_associative.cpp": 30,
     "variables.cpp": 30,
     "while_loop_folding.cpp": 10,
-    "nested_loop_folding.cpp": 12
+    "nested_loop_folding.cpp": 12,
+    "function_call_inlining.cpp": 4
 }
 
 GREEN = "\033[92m"

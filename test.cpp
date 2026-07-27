@@ -1,10 +1,18 @@
+int add(int a, int b)
+{
+	return a + b;
+}
 
-int main() {
-    int count = 0;
-    int sum = 0;
-    while (count < 5) {
-        sum = sum + count;
-        count++;
-    }
-    return sum;
+
+
+
+
+int main()
+{
+
+
+	int a = add(2, 2);
+
+
+	return a;
 }
