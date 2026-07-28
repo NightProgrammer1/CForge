@@ -30,7 +30,7 @@ public:
 				generator->push("rax");
 
 			}
-			void operator()(const NodeExprIndent& stat)
+			void operator()(const NodeExprIdent& stat)
 			{
 				bool found = false;
 				for (size_t i = generator->scopes.size(); i-- > 0; )
@@ -210,7 +210,7 @@ public:
 			void operator()(const NodeExprUnary& expr)
 			{
 				// Ensure the operand is an identifier (variable)
-				if (auto identExpr = std::get_if<NodeExprIndent>(&expr.expr->var))
+				if (auto identExpr = std::get_if<NodeExprIdent>(&expr.expr->var))
 				{
 					const std::string& varName = identExpr->name;
 

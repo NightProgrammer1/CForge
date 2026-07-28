@@ -27,7 +27,7 @@ private:
 		if (std::holds_alternative<NodeExprIntLit>(expr->var)) {
 			return expr;
 		}
-		else if (auto* identifier = std::get_if<NodeExprIndent>(&expr->var))
+		else if (auto* identifier = std::get_if<NodeExprIdent>(&expr->var))
 		{
 			if (auto value = GetVariableValue(identifier->name))
 			{
@@ -74,7 +74,7 @@ private:
 		}
 		else if (auto* unary = std::get_if<NodeExprUnary>(&expr->var))
 		{
-			if (auto* ident = std::get_if<NodeExprIndent>(&unary->expr->var))
+			if (auto* ident = std::get_if<NodeExprIdent>(&unary->expr->var))
 			{
 				std::string varName = ident->name;
 				if (auto currentVal = GetVariableValue(varName))
@@ -114,8 +114,8 @@ private:
 
 	std::optional<NodeExpr*> FoldBinaryExpr(NodeExprBinary* bin)
 	{
-		auto* leftInd = std::get_if<NodeExprIndent>(&bin->left->var);
-		auto* rightInd = std::get_if<NodeExprIndent>(&bin->right->var);
+		auto* leftInd = std::get_if<NodeExprIdent>(&bin->left->var);
+		auto* rightInd = std::get_if<NodeExprIdent>(&bin->right->var);
 		if (leftInd && rightInd)
 		{
 			if (leftInd->name == rightInd->name)
@@ -123,6 +123,13 @@ private:
 				if (bin->op.type == TokenType::sub)
 				{
 					return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 0 });
+				}
+				if (bin->op.type == TokenType::div)
+				{
+					auto value = GetVariableValue(leftInd->name);
+					if (value && *value != 0) {
+						return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 1 });
+					}
 				}
 			}
 		}
@@ -148,6 +155,10 @@ private:
 				if (rightLit->value == 0) return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 0 });
 				if (rightLit->value == 1) return foldedLeft;
 			}
+			else if (bin->op.type == TokenType::div)
+			{
+				if (leftLit->value == 1) return foldedRight;
+			}
 		}
 		else if (leftLit)
 		{
@@ -156,6 +167,7 @@ private:
 				if (leftLit->value == 0) return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 0 });
 				if (leftLit->value == 1) return foldedRight;
 			}
+			
 		}
 		return {};
 	}
@@ -359,6 +371,7 @@ private:
 
 				return std::nullopt;
 			}
+
 			std::optional<NodeStatement> operator()(NodeStatementExpr& stat)
 			{
 				stat.expr = analyzer->Fold(stat.expr);

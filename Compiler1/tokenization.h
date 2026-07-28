@@ -37,6 +37,8 @@ enum class TokenType
     _if,
     _else,
     _while,
+    _for,
+
 
     true_literal,
     false_literal,
@@ -137,6 +139,11 @@ public:
 					tokens.push_back({  TokenType::_while, identifier, lineCount });
 
 				}
+                else if (identifier == "for")
+                {
+                    tokens.push_back({ TokenType::_for, identifier, lineCount });
+
+                }
                 else if (identifier == "return")
                 {
                     tokens.push_back({ TokenType::_return, identifier,  lineCount });
@@ -206,6 +213,7 @@ public:
                 }
                 else { tokens.push_back({ TokenType::equal, "=" , lineCount}); }
             }
+
             else if (c == '+')
             {
 				_currentIndex++;
@@ -286,10 +294,15 @@ public:
              }
             else if (c == '!')
             {
-                tokens.push_back({  TokenType::_not, "!" });
                 _currentIndex++;
-
-            }
+                if (PeekChar().has_value() && PeekChar().value() == '=')
+                {
+                    tokens.push_back({ TokenType::not_equal, "!=", lineCount });
+                    _currentIndex++;
+                    continue;
+                }
+                else { tokens.push_back({ TokenType::_not, "!" , lineCount }); }
+                }
         }
 
         _currentIndex = 0;

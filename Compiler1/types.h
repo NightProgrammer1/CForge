@@ -35,7 +35,7 @@ struct NodeExprBoolLit
     bool value;
 };
 
-struct NodeExprIndent
+struct NodeExprIdent
 {
     std::string name;
 };
@@ -55,7 +55,7 @@ struct NodeExpr
 {
     std::variant<
         NodeExprIntLit,
-        NodeExprIndent,
+        NodeExprIdent,
         NodeExprBinary,
         NodeExprBoolLit,
         NodeExprCompare,
@@ -104,6 +104,17 @@ struct NodeStatementIf
 struct NodeStatementWhile
 {
     NodeExpr* condition;
+    NodeBlock block;
+};
+struct NodeStatementFor
+{
+    std::variant< 
+        NodeExpr*,
+        NodeStatement*>
+        init;
+
+    NodeExpr* condition;
+    NodeExpr* update;
     NodeBlock block;
 };
 

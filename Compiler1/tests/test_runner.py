@@ -11,7 +11,8 @@ TEST_EXPECTATIONS = {
     "variables.cpp": 30,
     "while_loop_folding.cpp": 10,
     "nested_loop_folding.cpp": 12,
-    "function_call_inlining.cpp": 4
+    "function_call_inlining.cpp": 4,
+    "for_loop.cpp": 5
 }
 
 GREEN = "\033[92m"

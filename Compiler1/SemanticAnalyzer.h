@@ -57,7 +57,7 @@ private:
 				return funcSymbol->returnType;
 			
 			}
-			Type operator()(const NodeExprIndent& stat) {
+			Type operator()(const NodeExprIdent& stat) {
 				auto symbol = analyzer->symbols.LookupVariable(stat.name);
 
 				if (!symbol.has_value())

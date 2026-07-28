@@ -44,7 +44,7 @@ public:
             std::string identifier = GetToken().value;
 
             auto identExpr = _allocator->new_object<NodeExpr>();
-            identExpr->var = NodeExprIndent{
+            identExpr->var = NodeExprIdent{
                 identifier
             };
 
@@ -61,7 +61,7 @@ public:
             std::string identifier = GetToken().value;
 
             auto identExpr = _allocator->new_object<NodeExpr>();
-            identExpr->var = NodeExprIndent{
+            identExpr->var = NodeExprIdent{
                 identifier
             };
 
@@ -186,7 +186,8 @@ public:
             (   PeekToken()->type == TokenType::less ||
                 PeekToken()->type == TokenType::greater ||
                 PeekToken()->type == TokenType::equal_equal ||
-                PeekToken()->type == TokenType::less_equal))
+                PeekToken()->type == TokenType::less_equal     ||
+                PeekToken()->type == TokenType::not_equal        ))
         {
             Token op = GetToken();
             auto right = ParseExpr();
@@ -392,6 +393,10 @@ public:
 		{
 			return ParseWhile();
 		}
+        else if (Match(TokenType::_for))
+        {
+            return ParseFor();
+        }
         else if (Match(TokenType::open_brace))
         {
 
@@ -617,6 +622,67 @@ public:
         return _allocator->new_object<NodeStatement>(_while);
 		
 	}
+    NodeStatement* ParseFor()
+    {
+
+        NodeStatement* updateExpr = nullptr;
+        NodeBlock block;
+        NodeStatementWhile _while;
+        Consume(TokenType::open_paren);
+        //initialization
+        if (PeekToken() && PeekToken()->type != TokenType::semicolon) {
+            if (auto stat = ParseStat()) {
+                if (std::holds_alternative<NodeStatementVar>(stat->stat) ||
+                    std::holds_alternative<NodeStatementAssignment>(stat->stat)) {
+                    block.statements.push_back(stat);
+                }
+                else {
+                    std::cerr << "Expected expression or declaration in for loop initialization\n";
+                    exit(EXIT_FAILURE);
+                }
+            }
+            else if (auto expr = ParseLogicalOr()) {
+                auto exprStat = _allocator->new_object<NodeStatement>(NodeStatementExpr{ expr });
+                block.statements.push_back(exprStat);
+            }
+        }
+        else
+        {
+            Consume(TokenType::semicolon);
+        }
+
+        //condition
+        if (PeekToken() && PeekToken()->type != TokenType::semicolon) {
+            if (auto expr = ParseLogicalOr()) {
+                _while.condition = expr;
+            }
+        }
+        else {
+            // Default to true
+            _while.condition = _allocator->new_object<NodeExpr>(NodeExprBoolLit{ true });
+        }
+        Consume(TokenType::semicolon);
+        //update
+        if (PeekToken() && PeekToken()->type != TokenType::close_paren) {
+            if (auto expr = ParseLogicalOr()) {
+                updateExpr = _allocator->new_object<NodeStatement>(NodeStatementExpr{ expr });
+            }
+        }
+        Consume(TokenType::close_paren);
+        //body
+        Consume(TokenType::open_brace);
+
+        auto bodyBlock = _allocator->new_object<NodeStatement>(NodeBlock{ ParseBlock() });
+        _while.block.statements.push_back(bodyBlock);
+
+        if (updateExpr) {
+            _while.block.statements.push_back(updateExpr);
+        }
+
+        block.statements.push_back(_allocator->new_object<NodeStatement>(_while));
+
+        return _allocator->new_object<NodeStatement>(block);
+    }
 
 private:
 

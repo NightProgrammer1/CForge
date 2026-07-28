@@ -32,7 +32,7 @@ public:
             std::optional<int> operator()(const NodeExprVoid& lit) {
                 return {};
             }
-            std::optional<int> operator()(const NodeExprIndent& var) {
+            std::optional<int> operator()(const NodeExprIdent& var) {
                 auto it = env.find(var.name);
                 if (it != env.end()) return it->second;
                 return std::nullopt; // Variable value not known at compile time
