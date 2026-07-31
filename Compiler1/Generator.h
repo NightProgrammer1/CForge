@@ -219,10 +219,10 @@ public:
 					if (expr.op.type == TokenType::increment)
 					{
 						// 2. Load the OLD value into rax 
-						generator->_output << "    mov rax, QWORD [rsp + " << varOffset << "]\n";
+						generator->_output << "    mov rax, QWORD [rbp - " << varOffset << "]\n";
 
 						// 3. Increment the actual variable stored in memory
-						generator->_output << "    add QWORD [rsp + " << varOffset << "], 1\n";
+						generator->_output << "    add QWORD [rbp - " << varOffset << "], 1\n";
 
 						// 4. Push the OLD value onto the stack for surrounding operations
 						generator->push("rax");
@@ -300,6 +300,7 @@ public:
 				generator->push("rax");
 			}
 			void operator()(const NodeExprVoid&){}
+			void operator()(const NodeExprAssignment&) {}
 			Generator* generator;
 		};
 		Visitor visit(this);
@@ -358,11 +359,37 @@ public:
 				generator->pop("rax");
 				generator->_output << "    test rax, rax\n";
 				generator->_output << "    jz " << endLabel << "\n";
+
+				generator->PushLoop(startLabel, endLabel);
+
+
 				generator->GenerateBlock(_while.block);
+
+
+				generator->PopLoop();
+
 				generator->_output << "    jmp " << startLabel << "\n";
 				generator->_output << "    " << endLabel << ":\n";
 			}
 
+
+			void operator()(const NodeStatementBreak& _break)
+			{
+				if (generator->breakLabels.empty()) {
+					std::cerr << "Error: 'break' outside of loop context\n";
+					exit(EXIT_FAILURE);
+				}
+				// Jump directly to the active loop's exit label
+				generator->_output << "    jmp " << generator->breakLabels.back() << "\n";
+			}
+			void operator()(const NodeStatementContinue&) {
+				if (generator->continueLabels.empty()) {
+					std::cerr << "Error: 'continue' outside of loop context\n";
+					exit(EXIT_FAILURE);
+				}
+				// Jump directly to the active loop's start label
+				generator->_output << "    jmp " << generator->continueLabels.back() << "\n";
+			}
 			void operator()(const NodeStatementExpr& stat)
 			{
 				generator->GenerateExpression(*stat.expr);
@@ -379,9 +406,9 @@ public:
 				bool found = false;
 				for (size_t i = generator->scopes.size(); i-- > 0; )
 				{
-					if (generator->scopes[i].variables.contains(assign.ident.value))
+					if (generator->scopes[i].variables.contains(assign.name))
 					{
-						const auto& var = generator->scopes[i].variables.at(assign.ident.value);
+						const auto& var = generator->scopes[i].variables.at(assign.name);
 						size_t offset = var.stack_location * 8;
 
 						generator->GenerateExpression(*assign.expr);
@@ -396,7 +423,7 @@ public:
 
 				if (!found)
 				{
-					std::cerr << "This variable (" << assign.ident.value << ") is undeclared." << std::endl;
+					std::cerr << "This variable (" << assign.name << ") is undeclared." << std::endl;
 					exit(EXIT_FAILURE);
 				}
 			}
@@ -569,7 +596,15 @@ private:
 		_output << "    pop " << reg << "\n";
 	}
 
+	void PushLoop(const std::string& start, const std::string& end) {
+		continueLabels.push_back(start);
+		breakLabels.push_back(end);
+	}
 
+	void PopLoop() {
+		continueLabels.pop_back();
+		breakLabels.pop_back();
+	}
 	std::string CreateLabel(const std::string& label)
 	{
 		return label + std::to_string(_labelCount++);
@@ -599,4 +634,6 @@ private:
 
 
 	const std::vector<std::string> PARAM_REGS = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
+	std::vector<std::string> breakLabels; 
+	std::vector<std::string> continueLabels;
 };

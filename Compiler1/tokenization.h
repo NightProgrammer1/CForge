@@ -16,7 +16,14 @@ enum class TokenType
     open_paren,
     close_paren,
     equal,
-	increment,
+    plus_equal,
+    sub_equal,
+    increment,
+	pre_increment,
+    post_increment,
+    decrease,
+    pre_decrease,
+    post_decrease,
 
     plus,
     sub,
@@ -38,7 +45,8 @@ enum class TokenType
     _else,
     _while,
     _for,
-
+    _break,
+    _continue,
 
     true_literal,
     false_literal,
@@ -149,6 +157,16 @@ public:
                     tokens.push_back({ TokenType::_return, identifier,  lineCount });
 
                 }
+                else if (identifier == "break")
+                {
+                    tokens.push_back({ TokenType::_break, identifier,  lineCount });
+
+                }
+                else if (identifier == "continue")
+                {
+                    tokens.push_back({ TokenType::_continue, identifier,  lineCount });
+
+                }
                 else
                 {
                     tokens.push_back({  TokenType::_identifier, identifier, lineCount });
@@ -223,6 +241,11 @@ public:
 					_currentIndex++;
 					continue;
                 }
+                else if (PeekChar().has_value() && PeekChar().value() == '=')
+                {
+                    tokens.push_back({ TokenType::plus_equal, "+=", lineCount });
+                    _currentIndex++;
+                }
                 else
                 {
                     tokens.push_back({  TokenType::plus, "+", lineCount });
@@ -240,8 +263,25 @@ public:
             }
             else if (c == '-')
             {
-                tokens.push_back({  TokenType::sub, "-", lineCount });
                 _currentIndex++;
+
+                if (PeekChar().has_value() && PeekChar().value() == '=')
+                {
+                    tokens.push_back({ TokenType::sub_equal, "-=", lineCount });
+                    _currentIndex++;
+                    continue;
+                }
+                else if (PeekChar().has_value() && PeekChar().value() == '-')
+                {
+                    tokens.push_back({ TokenType::decrease, "--", lineCount });
+                    _currentIndex++;
+                    continue;
+                }
+                else
+                {
+                    tokens.push_back({ TokenType::sub, "-", lineCount });
+
+                }
             }
             else if (c == '{')
             {

@@ -6,7 +6,7 @@
 #include <vector>
 #include <memory_resource>
 #include "ASTEvaluator.h"
-
+#include <unordered_set>
 
 class ConstantFolder
 {
@@ -56,14 +56,12 @@ private:
 					return {};
 				}
 			}
-			auto function = std::find_if(ast->functions.begin(), ast->functions.end(), [&](NodeFunction& func) {return (func.name == funcCall->name) ? true : false; });
-			if (function == ast->functions.end() || !function->body.has_value()) return {};
+			if (!funcCall->func || !funcCall->func->body.has_value()) return {};
 
 
-			NodeBlock clonedBody = CloneBlock(*function->body);
 			EnterScope();
 
-			std::optional<int> returnValue = EvaluateFunctionCall(*function, argValues);
+			std::optional<int> returnValue = EvaluateFunctionCall(*funcCall->func, argValues);
 
 			ExitScope();
 
@@ -91,6 +89,16 @@ private:
 					InvalidateVariable(varName);
 				}
 				return expr;
+			}
+		}
+		else if (auto* assign = std::get_if<NodeExprAssignment>(&expr->var))
+		{
+			NodeExpr* val = Fold(assign->expr);
+			if (auto lit = std::get_if<NodeExprIntLit>(&val->var)) {
+				SetVariableValue(assign->name, lit->value);
+			}
+			else {
+				InvalidateVariable(assign->name);
 			}
 		}
 		return expr;
@@ -232,10 +240,10 @@ private:
 			void operator()(NodeStatementAssignment& stat) {
 				NodeExpr* val = analyzer->Fold(stat.expr);
 				if (auto lit = std::get_if<NodeExprIntLit>(&val->var)) {
-					analyzer->SetVariableValue(stat.ident.value, lit->value);
+					analyzer->SetVariableValue(stat.name, lit->value);
 				}
 				else {
-					analyzer->InvalidateVariable(stat.ident.value);
+					analyzer->InvalidateVariable(stat.name);
 				}
 			}
 			void operator()(NodeBlock& block) {
@@ -262,6 +270,14 @@ private:
 					if (!lit || lit->value == 0 || ++iterations > 10000) break;
 					analyzer->SimulateBlock(_while.block);
 				}
+			}
+			void operator()(NodeStatementBreak& _break)
+			{
+				return;
+			}
+			void operator()(NodeStatementContinue& _continue)
+			{
+				return;
 			}
 		};
 
@@ -342,36 +358,55 @@ private:
 			}
 			std::optional<NodeStatement> operator()(NodeStatementWhile& _while)
 			{
-				// 1. Check condition with current variable state
-				NodeExpr* foldedCond = analyzer->Fold(_while.condition);
-				auto* lit = std::get_if<NodeExprIntLit>(&foldedCond->var);
 
-				if (!lit) {
-					analyzer->AnalyzeBlock(_while.block);
-					return NodeStatement{ _while };
+				std::unordered_map<std::string, int> testEnv;
+
+				for (const auto& scope : analyzer->constants) {
+					for (const auto& [name, value] : scope.variable) {
+						testEnv[name] = value; 
+					}
 				}
 
-				if (lit->value == 0) {
+				
+				std::unordered_set<std::string> existingVars;
+				for (const auto& [name, _] : testEnv) {
+					existingVars.insert(name);
+				}
+
+				ASTEvaluator evaluator(*analyzer->ast);
+				EvalResult result = evaluator.EvaluateWhile(_while, testEnv);
+
+				if (result.status != EvalResult::Status::Failure) {
+					for (const auto& [name, val] : testEnv) {
+						if (existingVars.count(name)) {
+							analyzer->SetVariableValue(name, val);
+						}
+					}
+
+					if (result.status == EvalResult::Status::Return) {
+						return NodeStatement{ NodeStatementReturn{
+							analyzer->_allocator->new_object<NodeExpr>(NodeExprIntLit{ result.value })
+						} };
+					}
+
 					return std::nullopt;
 				}
 
-				size_t iterations = 0;
-				const size_t MAX_ITERATIONS = 10000;
+				_while.condition = analyzer->Fold(_while.condition);
+				analyzer->AnalyzeBlock(_while.block);
 
-				while (lit && lit->value != 0) {
-					if (++iterations > MAX_ITERATIONS) {
-						return NodeStatement{ _while };
-					}
-
-					analyzer->SimulateBlock(_while.block);
-
-					foldedCond = analyzer->Fold(_while.condition);
-					lit = std::get_if<NodeExprIntLit>(&foldedCond->var);
-				}
-
-				return std::nullopt;
+				return NodeStatement{ _while };
+			
 			}
 
+			std::optional<NodeStatement> operator()(NodeStatementBreak& _break)
+			{
+				return NodeStatement{ _break };
+			}
+			std::optional<NodeStatement> operator()(NodeStatementContinue& _continue)
+			{
+				return NodeStatement{ _continue };
+			}
 			std::optional<NodeStatement> operator()(NodeStatementExpr& stat)
 			{
 				stat.expr = analyzer->Fold(stat.expr);
@@ -390,10 +425,10 @@ private:
 				assign.expr = analyzer->Fold(assign.expr);
 
 				if (auto lit = std::get_if<NodeExprIntLit>(&assign.expr->var)) {
-					analyzer->SetVariableValue(assign.ident.value, lit->value);
+					analyzer->SetVariableValue(assign.name, lit->value);
 				}
 				else {
-					analyzer->InvalidateVariable(assign.ident.value);
+					analyzer->InvalidateVariable(assign.name);
 				}
 
 				return NodeStatement{ assign };
@@ -454,9 +489,15 @@ private:
 		newStatements.reserve(block.statements.size());
 
 		for (NodeStatement* stat : block.statements) {
-			if (auto updatedStat = AnalyzeStatement(*stat)) {
+			if (!stat) continue;
+
+			// 1. Analyze and fold the current statement
+			auto updatedStat = AnalyzeStatement(*stat);
+
+			if (updatedStat) {
 				*stat = std::move(*updatedStat);
 				newStatements.push_back(stat);
+
 			}
 		}
 
@@ -486,7 +527,7 @@ private:
 			localEnv[func.parameters[i].name] = argValues[i];
 		}
 
-		ASTEvaluator evaluator;
+		ASTEvaluator evaluator(*ast);
 		EvalResult result = evaluator.EvaluateBlock(func.body.value(), localEnv);
 
 		if (result.status == EvalResult::Status::Return) {
@@ -496,90 +537,7 @@ private:
 		return std::nullopt; // Evaluation failed or did not return
 	}
 
-
-	NodeExpr* CloneExpr(const NodeExpr* expr) {
-		if (!expr) return nullptr;
-
-		NodeExpr* cloned = _allocator->new_object<NodeExpr>(expr->var);
-
-		if (auto* bin = std::get_if<NodeExprBinary>(&cloned->var)) {
-			bin->left = CloneExpr(bin->left);
-			bin->right = CloneExpr(bin->right);
-		}
-		else if (auto* comp = std::get_if<NodeExprCompare>(&cloned->var)) {
-			comp->left = CloneExpr(comp->left);
-			comp->right = CloneExpr(comp->right);
-		}
-		else if (auto* call = std::get_if<NodeExprCall>(&cloned->var)) {
-			for (auto& arg : call->args) {
-				arg = CloneExpr(arg);
-			}
-		}
-
-		return cloned;
-	}
-
-	NodeStatement* CloneStatement(const NodeStatement* stat)
-	{
-		if (!stat) return nullptr;
-
-		struct StatementCloner {
-			ConstantFolder* analyzer;
-
-			NodeStatement operator()(const NodeStatementExit& s) {
-				return NodeStatement{ NodeStatementExit{ analyzer->CloneExpr(s.expr) } };
-			}
-			NodeStatement operator()(const NodeStatementReturn& s) {
-				return NodeStatement{ NodeStatementReturn{ analyzer->CloneExpr(s.expr) } };
-			}
-			NodeStatement operator()(const NodeStatementExpr& s) {
-				return NodeStatement{ NodeStatementExpr{ analyzer->CloneExpr(s.expr) } };
-			}
-			NodeStatement operator()(const NodeStatementVar& s) {
-				return NodeStatement{ NodeStatementVar{ s.name, analyzer->CloneExpr(s.expr) } };
-			}
-			NodeStatement operator()(const NodeStatementAssignment& s) {
-				return NodeStatement{ NodeStatementAssignment{ s.ident, analyzer->CloneExpr(s.expr) } };
-			}
-			NodeStatement operator()(const NodeBlock& block) {
-				return NodeStatement{ analyzer->CloneBlock(block)};
-			}
-			NodeStatement operator()(const NodeStatementIf& _if) {
-				NodeStatementIf clonedIf;
-				clonedIf.condition = analyzer->CloneExpr(_if.condition);
-				clonedIf.thenBlock = analyzer->CloneBlock(_if.thenBlock);
-				if (_if.elseBlock.has_value()) {
-					clonedIf.elseBlock = analyzer->CloneBlock(_if.elseBlock.value());
-				}
-				return NodeStatement{ clonedIf };
-			}
-			NodeStatement operator()(const NodeStatementWhile& _while) {
-				NodeStatementWhile clonedWhile;
-				clonedWhile.condition = analyzer->CloneExpr(_while.condition);
-				clonedWhile.block = analyzer->CloneBlock(_while.block);
-				return NodeStatement{ clonedWhile };
-			}
-		};
-
-		StatementCloner cloner{ this };
-		NodeStatement clonedStat = std::visit(cloner, stat->stat);
-
-		return _allocator->new_object<NodeStatement>( std::move(clonedStat));
-	}
-
-	NodeBlock CloneBlock(const NodeBlock& body)
-	{
-		NodeBlock newBlock;
-		newBlock.statements.reserve(body.statements.size());
-
-		for (const NodeStatement* stat : body.statements) {
-			if (stat) {
-				newBlock.statements.push_back(CloneStatement(stat));
-			}
-		}
-
-		return newBlock;
-	}
+	
 
 	void EnterScope() { constants.push_back({}); }
 	void ExitScope() { constants.pop_back(); }

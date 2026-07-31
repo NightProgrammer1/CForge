@@ -65,6 +65,7 @@ public:
                 identifier
             };
 
+            //Expr Call
             if (Match(TokenType::open_paren)) {
 
                 auto expr = _allocator->new_object<NodeExpr>();
@@ -105,17 +106,112 @@ public:
             {
                 auto unary = _allocator->new_object<NodeExpr>();
                 unary->var = NodeExprUnary{
-                    Token{TokenType::increment},
+                    Token{TokenType::post_increment},
+                    std::move(identExpr)
+                };
+
+                return unary;
+            }
+            if (Match(TokenType::decrease))
+            {
+                auto unary = _allocator->new_object<NodeExpr>();
+                unary->var = NodeExprUnary{
+                    Token{TokenType::post_decrease},
                     std::move(identExpr)
                 };
 
                 return unary;
             }
 
+            if (TryMatch(TokenType::plus_equal))
+            {
+                NodeExprAssignment assign;
+
+
+                std::string varName = identifier;
+
+                auto p = PeekToken();
+
+
+                while (PeekToken() &&
+                    (PeekToken()->type == TokenType::plus_equal))
+                {
+                    Token op = GetToken();
+                    switch (op.type)
+                    {
+                    case TokenType::plus_equal:op.type = TokenType::plus; break;
+                    default:
+                        break;
+                    }
+                    auto right = ParseLogicalOr();
+                    auto binary = _allocator->new_object<NodeExpr>();
+
+                    binary->var = NodeExprBinary{
+                       op,
+                       std::move(identExpr),
+                       std::move(right)
+                    };
+
+                    identExpr = std::move(binary);
+                    p = PeekToken();
+                }
+
+                assign.expr = identExpr;
+                assign.name = varName;
+
+                TryConsume(TokenType::semicolon);
+
+                return _allocator->new_object<NodeExpr>(assign);
+            }
+
+
+
+
+
+
             return identExpr;
+
+
+
+
+
         }
 
+        if (Match(TokenType::increment))
+        {
+            std::string identifier = GetToken().value;
 
+            auto identExpr = _allocator->new_object<NodeExpr>();
+            identExpr->var = NodeExprIdent{
+                identifier
+            };
+
+            auto unary = _allocator->new_object<NodeExpr>();
+            unary->var = NodeExprUnary{
+                Token{TokenType::pre_increment},
+                std::move(identExpr)
+            };
+
+            return unary;
+        }
+
+        if (Match(TokenType::decrease))
+        {
+            std::string identifier = GetToken().value;
+
+            auto identExpr = _allocator->new_object<NodeExpr>();
+            identExpr->var = NodeExprIdent{
+                identifier
+            };
+
+            auto unary = _allocator->new_object<NodeExpr>();
+            unary->var = NodeExprUnary{
+                Token{TokenType::pre_decrease},
+                std::move(identExpr)
+            };
+
+            return unary;
+        }
         if (Match(TokenType::open_paren))
         {
             auto expr = ParseBoolean();
@@ -181,12 +277,15 @@ public:
 		//Handle the case where we have a comparison expression, and then we have a comparison operator (<, >, ==) that combines two expressions.
         auto left = ParseExpr();
         auto p = PeekToken();
+        int a;
 
+       
         while (PeekToken() &&
             (   PeekToken()->type == TokenType::less ||
                 PeekToken()->type == TokenType::greater ||
                 PeekToken()->type == TokenType::equal_equal ||
                 PeekToken()->type == TokenType::less_equal     ||
+                PeekToken()->type == TokenType::greater_equal          ||
                 PeekToken()->type == TokenType::not_equal        ))
         {
             Token op = GetToken();
@@ -268,6 +367,33 @@ public:
             Token op = GetToken();
             auto right = ParseLogicalAnd();
             auto binary = _allocator->new_object<NodeExpr>(); 
+
+            binary->var = NodeExprCompare{
+               op,
+               std::move(left),
+               std::move(right)
+            };
+
+            left = std::move(binary);
+            p = PeekToken();
+        }
+
+        return left;
+    }
+    NodeExpr* ParseCompoundAssign()
+    {
+        auto left = ParseLogicalOr();
+
+
+        auto p = PeekToken();
+
+
+        while (PeekToken() &&
+            (PeekToken()->type == TokenType::plus_equal))
+        {
+            Token op = GetToken();
+            auto right = ParseLogicalOr();
+            auto binary = _allocator->new_object<NodeExpr>();
 
             binary->var = NodeExprCompare{
                op,
@@ -430,13 +556,22 @@ public:
 
 
         }
+        else if (Match(TokenType::_break)) {
+            Consume(TokenType::semicolon);
+            return _allocator->new_object<NodeStatement>(NodeStatementBreak{});
+        }
+        else if (Match(TokenType::_continue)) {
+            Consume(TokenType::semicolon);
+            return _allocator->new_object<NodeStatement>(NodeStatementContinue{});
+        }
         else if (TryMatch(TokenType::_identifier))
         {
             bool has_equal = PeekToken(1).has_value() && (PeekToken(1).value().type == TokenType::equal);
+            bool has_plus_equal = PeekToken(1).has_value() && (PeekToken(1).value().type == TokenType::plus_equal);
             if (has_equal)
             {
                 NodeStatementAssignment assign;
-                assign.ident = GetToken();
+                assign.name = GetToken().value;
 
                 Consume(TokenType::equal);
                 if (auto expr = ParseLogicalOr())
@@ -452,8 +587,49 @@ public:
                 Consume(TokenType::semicolon);
                 return _allocator->new_object<NodeStatement>(assign);
             }
+            else if (has_plus_equal)
+            {
+                NodeStatementAssignment assign;
+
+
+                std::string varName = GetToken().value;
+                auto left = _allocator->new_object<NodeExpr>(NodeExprIdent{varName});
+                auto p = PeekToken();
+
+
+                while (PeekToken() &&
+                    (PeekToken()->type == TokenType::plus_equal))
+                {
+                    Token op = GetToken();
+                    switch (op.type)
+                    {
+                    case TokenType::plus_equal:op.type = TokenType::plus; break;
+                    default:
+                        break;
+                    }
+                    auto right = ParseLogicalOr();
+                    auto binary = _allocator->new_object<NodeExpr>();
+
+                    binary->var = NodeExprBinary{
+                       op,
+                       std::move(left),
+                       std::move(right)
+                    };
+
+                    left = std::move(binary);
+                    p = PeekToken();
+                }
+
+                assign.expr = left;
+                assign.name = varName;
+
+                TryConsume(TokenType::semicolon);
+
+                return _allocator->new_object<NodeStatement>(assign);
+            }
 
         }
+        
         if (auto expr = ParseBoolean())
         {
             Consume(TokenType::semicolon);
@@ -701,6 +877,7 @@ private:
         if (!PeekToken() || PeekToken()->type != type) {
             return {};
         }
+        Consume(type);
         return  _tokens.at(_currentIndex);
     }
 

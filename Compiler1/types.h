@@ -3,7 +3,7 @@
 #include <variant>
 #include <memory>
 
-
+struct NodeFunction;
 struct NodeExpr;
 
 struct NodeExprBinary
@@ -45,8 +45,15 @@ struct NodeExprVoid
 
 };
 
+struct NodeExprAssignment
+{
+    std::string name;
+    NodeExpr* expr;
+};
+
 struct NodeExprCall
 {
+    NodeFunction* func;
     std::vector<NodeExpr*> args;
     std::string name;
 };
@@ -55,13 +62,14 @@ struct NodeExpr
 {
     std::variant<
         NodeExprIntLit,
-        NodeExprIdent,
-        NodeExprBinary,
-        NodeExprBoolLit,
-        NodeExprCompare,
-        NodeExprVoid,
-        NodeExprUnary,
-        NodeExprCall
+        NodeExprIdent, // 1
+        NodeExprBinary, // 2
+        NodeExprBoolLit, // 3
+        NodeExprCompare, // 4
+        NodeExprVoid,    // 5
+        NodeExprUnary,   // 6
+        NodeExprCall,    // 7
+        NodeExprAssignment // 8
     > var;
 };
 
@@ -128,9 +136,18 @@ struct NodeStatementReturn
     NodeExpr* expr;
 
 };
+struct NodeStatementBreak
+{
+
+};
+
+struct NodeStatementContinue
+{
+
+};
 struct NodeStatementAssignment
 {
-    Token ident;     
+    std::string name;     
     NodeExpr* expr;
 
 };
@@ -143,6 +160,8 @@ struct NodeStatement
         NodeBlock,
         NodeStatementIf,
         NodeStatementWhile,
+        NodeStatementBreak,
+        NodeStatementContinue,
         NodeStatementExpr,
         NodeStatementReturn,
         NodeStatementAssignment

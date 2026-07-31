@@ -4,32 +4,26 @@ _start:
     mov rdi, rax
     mov rax, 60
     syscall
-add:
+main:
     push rbp
     mov rbp, rsp
     sub rsp, 16
-    mov QWORD [rbp - 8], rdi
-    mov QWORD [rbp - 16], rsi
-    mov rax, QWORD [rbp - 8]
+    mov rax, 0
     push rax
-    mov rax, QWORD [rbp - 16]
+    mov QWORD [rbp - 8], rax
+    mov rax, 0
     push rax
-    pop rdi
-    pop rax
-    add rax, rdi
+    mov QWORD [rbp - 16], rax
+    mov rax, 20
     push rax
     pop rax
     mov rsp, rbp
     pop rbp
     ret
-main:
+increase_by_one:
     push rbp
     mov rbp, rsp
-    sub rsp, 16
-    mov rax, 4
-    push rax
-    mov QWORD [rbp - 8], rax
-    mov rax, 4
+    mov rax, 1
     push rax
     pop rax
     mov rsp, rbp

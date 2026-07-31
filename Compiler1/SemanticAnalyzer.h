@@ -16,7 +16,7 @@ public:
 
 private:
 
-	Type AnalyzeExpression(const NodeExpr& expr) 
+	Type AnalyzeExpression(NodeExpr& expr) 
 	{
 		struct Visitor
 		{
@@ -28,17 +28,17 @@ private:
 			Type operator()(const NodeExprBoolLit&) {
 				return Type::Bool;
 			}
-			Type operator()(const NodeExprCall& call) {
+			Type operator()(NodeExprCall& call) {
 				auto funcSymbol = analyzer->symbols.LookupFunction(call.name);
 
 
 
-				if (!funcSymbol.has_value()) {
+				if (!funcSymbol->hasBody) {
 					std::cerr << "Semantic Error: Call to undeclared function '"
 						<< call.name << "'\n";
 					exit(EXIT_FAILURE);
 				}
-
+				
 				if (call.args.size() != funcSymbol->paramTypes.size()) {
 					std::cerr << "Semantic Error: Incorrect argument count for function '"
 						<< call.name << "'\n";
@@ -54,8 +54,33 @@ private:
 					}
 				}
 
+				auto function = std::find_if(analyzer->ast.functions.begin(), analyzer->ast.functions.end(), [&](NodeFunction& func) { if (!func.body.has_value()) { return false; } return (func.name == call.name) ? true : false; });
+				//if (function == analyzer->ast.functions.end() || !function->body.has_value()) { exit(EXIT_FAILURE); };
+
+
+				call.func = &(*function);
 				return funcSymbol->returnType;
 			
+			}
+			Type operator()(const NodeExprAssignment& assign)
+			{
+				auto var = analyzer->symbols.LookupVariable(assign.name);
+				if (var.has_value())
+				{
+					Type exprType = analyzer->AnalyzeExpression(*assign.expr);
+					if (exprType != var->type) {
+						std::cerr << "Type Error: Cannot assign expression of type "
+							<< (exprType == Type::Bool ? "Bool" : "Int")
+							<< " to variable '" << var->name << "'\n";
+						exit(EXIT_FAILURE);
+					}
+
+					return var->type;
+				}
+
+				std::cerr << "Semantic Error: Variable '" << assign.name
+					<< "' has not been declared\n";
+				exit(EXIT_FAILURE);
 			}
 			Type operator()(const NodeExprIdent& stat) {
 				auto symbol = analyzer->symbols.LookupVariable(stat.name);
@@ -114,7 +139,7 @@ private:
 		Visitor visitor{ this };
 		return std::visit(visitor, expr.var);
 	}
-	void AnalyzeStatement(const NodeStatement& statement)
+	void AnalyzeStatement( NodeStatement& statement)
 	{
 		struct Visitor
 		{
@@ -170,11 +195,20 @@ private:
 					std::cerr << "Type Error: Condition must return a bool.\n";
 					exit(EXIT_FAILURE);
 				}
+				analyzer->AnalyzeBlock(_while.block);
 			}
 
-			void operator()(const NodeStatementExpr& stat)
+			void operator()(const NodeStatementBreak& _break)
 			{
 
+			}
+			void operator()(const NodeStatementContinue& _continue)
+			{
+
+			}
+			void operator()(NodeStatementExpr& stat)
+			{
+				analyzer->AnalyzeExpression(*(stat.expr));
 			}
 			void operator()(const NodeStatementReturn& _ret)
 			{
@@ -208,7 +242,7 @@ private:
 
 			void operator()(const NodeStatementAssignment& assign)
 			{
-				auto var = analyzer->symbols.LookupVariable(assign.ident.value);
+				auto var = analyzer->symbols.LookupVariable(assign.name);
 				if (var.has_value())
 				{
 					Type exprType = analyzer->AnalyzeExpression(*assign.expr);
@@ -222,7 +256,7 @@ private:
 					return;
 				}
 
-				std::cerr << "Semantic Error: Variable '" << assign.ident.value
+				std::cerr << "Semantic Error: Variable '" << assign.name
 					<< "' has not been declared\n";
 				exit(EXIT_FAILURE);
 			}
@@ -231,10 +265,6 @@ private:
 		std::visit(visitor, statement.stat);
 	}
 
-	int ff()
-	{
-
-	}
 	void AnalyzeFunction(NodeFunction& func)
 	{
 		

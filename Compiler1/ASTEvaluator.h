@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <variant>
+#include <cassert>
 
 // Control flow result wrapper
 struct EvalResult {
@@ -15,13 +16,14 @@ struct EvalResult {
 
 class ASTEvaluator {
 public:
+    ASTEvaluator(NodeProg& ast) : _ast(ast) {}
     // Evaluates an expression to a constant integer value
-    std::optional<int> EvaluateExpr(const NodeExpr* expr, const std::unordered_map<std::string, int>& env) {
+    std::optional<int> EvaluateExpr(const NodeExpr* expr, std::unordered_map<std::string, int>& env) {
         if (!expr) return std::nullopt;
 
         struct Visitor {
             ASTEvaluator* evaluator;
-            const std::unordered_map<std::string, int>& env;
+            std::unordered_map<std::string, int>& env;
 
             std::optional<int> operator()(const NodeExprIntLit& lit) {
                 return lit.value;
@@ -51,16 +53,50 @@ public:
                 }
             }
             std::optional<int> operator()(const NodeExprCompare& bin) {
-                return {};
+                auto left = evaluator->EvaluateExpr(bin.left, env);
+                auto right = evaluator->EvaluateExpr(bin.right, env);
+                if (!left || !right) return std::nullopt;
+                switch (bin.op.type) {
+                case TokenType::less:  return *left < *right;
+                case TokenType::greater: return *left > *right;
+                case TokenType::equal_equal: return *left == *right;
+                case TokenType::less_equal: return *left <= *right;
+                case TokenType::greater_equal: return *left >= *right;
+                case TokenType::not_equal: return *left != *right;
+                default: return std::nullopt;
+                }
+
             }
             std::optional<int> operator()(const NodeExprUnary& un) {
                 auto val = evaluator->EvaluateExpr(un.expr, env);
                 if (!val) return std::nullopt;
-                if (un.op.type == TokenType::sub) return -(*val);
-                return std::nullopt;
+
+                switch (un.op.type) {
+                case TokenType::post_increment: return ++(*val);
+                case TokenType::pre_increment : return ++(*val);
+                case TokenType::post_decrease : return --(*val);
+                case TokenType::pre_decrease  : return --(*val);
+
+
+                default: return std::nullopt;
+                }
             }
             std::optional<int> operator()(const NodeExprCall& call) {
-                return {};
+
+                assert(call.func->body && "Function has no body");
+
+                auto result = evaluator->EvaluateBlock(call.func->body.value(), env);
+
+                if (result.status != EvalResult::Status::Return) return std::nullopt;
+
+                return result.value;
+
+            }
+            std::optional<int> operator()(const NodeExprAssignment& assign) {
+                auto val = evaluator->EvaluateExpr(assign.expr, env);
+                if (!val) return std::nullopt;
+
+                return val;
             }
         };
 
@@ -78,7 +114,11 @@ public:
         }
         return { EvalResult::Status::Next, 0 };
     }
-
+    EvalResult EvaluateWhile(const NodeStatementWhile& stat, std::unordered_map<std::string, int>& env)
+    {
+        NodeStatement stmt{ stat };
+        return EvaluateStatement(&stmt, env);
+    }
 private:
     EvalResult EvaluateStatement(const NodeStatement* stat, std::unordered_map<std::string, int>& env) {
         struct Visitor {
@@ -90,19 +130,29 @@ private:
                 return { EvalResult::Status::Next };
             }
             EvalResult operator()(const NodeStatementExpr& exit) {
+                auto val = evaluator->EvaluateExpr(exit.expr, env);
+                if (!val) return { EvalResult::Status::Failure };
+
+                if (auto un = std::get_if<NodeExprUnary>(&exit.expr->var)) {
+                    auto var = std::get_if<NodeExprIdent>(&un->expr->var);
+                    env[var->name] = *val;
+                }
+                else if (auto assign = std::get_if<NodeExprAssignment>(&exit.expr->var)) {
+                    env[assign->name] = *val;
+                }
                 return { EvalResult::Status::Next };
             }
            
             EvalResult operator()(const NodeStatementVar& var) {
                 auto val = evaluator->EvaluateExpr(var.expr, env);
                 if (!val) return { EvalResult::Status::Failure };
-                env[var.name] = *val; // Bind local variable
+                env[var.name] = *val; 
                 return { EvalResult::Status::Next };
             }
             EvalResult operator()(const NodeStatementAssignment& assign) {
                 auto val = evaluator->EvaluateExpr(assign.expr, env);
                 if (!val) return { EvalResult::Status::Failure };
-                env[assign.ident.value] = *val; // Update local variable
+                env[assign.name] = *val; 
                 return { EvalResult::Status::Next };
             }
             EvalResult operator()(const NodeStatementReturn& ret) {
@@ -125,12 +175,44 @@ private:
                 }
                 return { EvalResult::Status::Next };
             }
-            EvalResult operator()(const NodeStatementWhile& exit) {
-                return { EvalResult::Status::Next };
+            EvalResult operator()(const NodeStatementWhile& _while) {
+                while (true) {
+                    // 1. Check condition
+                    auto condVal = evaluator->EvaluateExpr(_while.condition, env);
+                    if (!condVal) return { EvalResult::Status::Failure }; // Dynamic expression
+
+                    if (*condVal == 0) {
+                        break; 
+                    }
+
+                    EvalResult res = evaluator->EvaluateBlock(_while.block, env);
+
+                    if (res.status == EvalResult::Status::Return || res.status == EvalResult::Status::Failure) {
+                        return res; 
+                    }
+
+                    if (res.status == EvalResult::Status::Break) {
+                        break; 
+                    }
+
+                    if (res.status == EvalResult::Status::Continue) {
+                        continue; 
+                    }
+                }
+
+                return { EvalResult::Status::Next, 0 };
+            }
+            EvalResult operator()(const NodeStatementBreak& _break) {
+                return { EvalResult::Status::Break };
+            }
+            EvalResult operator()(const NodeStatementContinue& _continue) {
+                return { EvalResult::Status::Continue };
             }
            
         };
 
         return std::visit(Visitor{ this, env }, stat->stat);
     }
+
+    NodeProg& _ast;
 };
