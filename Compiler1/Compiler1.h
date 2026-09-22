@@ -14,3 +14,4 @@
 #include "LivenessAnalysis.h"
 #include "PreMachineInstruction.h"
 #include "PostMachineInstruction.h"
+#include "ThreeAdressCode.h"
