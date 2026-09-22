@@ -7,27 +7,30 @@
 
 enum class TokenType
 {
-	exit,
+    exit,
     _return,
-	_identifier,
-	semicolon,
+    _identifier,
+    comment,
+    semicolon,
     comma,
-	int_literal,
+    int_literal,
     open_paren,
     close_paren,
     equal,
     plus_equal,
     sub_equal,
+    star_equal,
+    div_equal,
     increment,
 	pre_increment,
     post_increment,
     decrease,
-    pre_decrease,
-    post_decrease,
+    pre_decrement,
+    post_decrement,
 
     plus,
     sub,
-    mult,
+    star,
     div,
 
 
@@ -36,11 +39,14 @@ enum class TokenType
     _int,
     _void,
     _bool,
-
-
+    _const,
+    _static,
+    _volatile,
 
     open_brace,
     close_brace,
+    open_bracket,
+    close_bracket,
     _if,
     _else,
     _while,
@@ -56,13 +62,15 @@ enum class TokenType
     greater_equal,
     less_equal,
     not_equal,
+    negate,
     _or,
     _and,
     _not,
 
 
 
-    func
+    func,
+    ampersand
 };
 struct Token
 {
@@ -220,6 +228,18 @@ public:
                 _currentIndex++;
                 continue;
             }
+            else if (c == '[')
+            {
+                tokens.push_back({ TokenType::open_bracket, "[", lineCount });
+                _currentIndex++;
+                continue;
+            }
+            else if (c == ']')
+            {
+                tokens.push_back({ TokenType::close_bracket, "]", lineCount });
+                _currentIndex++;
+                continue;
+            }
             else if (c == '=')
             {
                 _currentIndex++;
@@ -253,13 +273,41 @@ public:
             }
             else if (c == '*')
             {
-                tokens.push_back({  TokenType::mult, "*", lineCount });
                 _currentIndex++;
+
+                if (PeekChar().has_value() && PeekChar().value() == '=')
+                {
+                    tokens.push_back({ TokenType::star_equal, "*=", lineCount });
+                    _currentIndex++;
+                    continue;
+                }
+                else {
+                    tokens.push_back({ TokenType::star, "*", lineCount });
+                }
             }
             else if (c == '/')
             {
-                tokens.push_back({  TokenType::div, "/", lineCount });
                 _currentIndex++;
+
+                if (PeekChar() && PeekChar().value() == '=')
+                {
+                    tokens.push_back({ TokenType::div_equal, "/=", lineCount });
+                    _currentIndex++;
+                    continue;
+                }
+                else if (PeekChar() && PeekChar().value() == '/')
+                {
+                    auto next_line = _src.find('\n', _currentIndex);
+                    _currentIndex += (next_line - _currentIndex); // skips the line
+
+                    auto value = _src[_currentIndex];
+
+
+                    continue;
+                }
+                else {
+                    tokens.push_back({ TokenType::div, "/", lineCount });
+                }
             }
             else if (c == '-')
             {
@@ -309,8 +357,14 @@ public:
             }
             else if (c == '>')
             {
-                tokens.push_back({ TokenType::greater, ">" });
                 _currentIndex++;
+                if (PeekChar().has_value() && PeekChar().value() == '=')
+                {
+                    tokens.push_back({ TokenType::greater_equal, ">=", lineCount });
+                    _currentIndex++;
+                    continue;
+                }
+                tokens.push_back({ TokenType::greater, ">" , lineCount });
             }
             else if (c == '|')
             {
@@ -329,6 +383,7 @@ public:
                 }
                 else
                 {
+                    tokens.push_back({ TokenType::ampersand, "&" });
 
                 }
              }

@@ -13,7 +13,12 @@ TEST_EXPECTATIONS = {
     "nested_loop_folding.cpp": 12,
     "function_call_inlining.cpp": 4,
     "for_loop.cpp": 5,
-    "for_loop_folding.cpp": 20
+    "for_loop_folding.cpp": 20,
+    "array_of_pointers.cpp": 42,
+    "array_parameter.cpp": 21,
+    "multi-dimensional_dereference.cpp": 35,
+    "pointer_substraction.cpp": 15,
+    "array_and_pointers.cpp": 188
 }
 
 GREEN = "\033[92m"

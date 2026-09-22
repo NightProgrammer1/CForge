@@ -7,81 +7,79 @@
 #include <variant>
 #include <cassert>
 
+
+
 // Control flow result wrapper
 struct EvalResult {
     enum class Status { Next, Return, Break, Continue, Failure };
     Status status = Status::Next;
-    int value = 0; // Populated when status == Return
+    ConstValue value; // Populated when status == Return
 };
+
+
 
 class ASTEvaluator {
 public:
     ASTEvaluator(NodeProg& ast) : _ast(ast) {}
-    // Evaluates an expression to a constant integer value
-    std::optional<int> EvaluateExpr(const NodeExpr* expr, std::unordered_map<std::string, int>& env) {
+    // Evaluates an expression to a constant ConstValueeger ConstValue
+    std::optional<ConstValue> EvaluateExpr(const NodeExpr* expr, std::unordered_map<std::string, ConstValue>& env) {
         if (!expr) return std::nullopt;
 
         struct Visitor {
             ASTEvaluator* evaluator;
-            std::unordered_map<std::string, int>& env;
+            std::unordered_map<std::string, ConstValue>& env;
 
-            std::optional<int> operator()(const NodeExprIntLit& lit) {
-                return lit.value;
+            std::optional<ConstValue> operator()(const NodeExprIntLit& lit) {
+                return ConstValue { lit.value };
             }
-            std::optional<int> operator()(const NodeExprBoolLit& lit) {
-                return lit.value;
+            std::optional<ConstValue> operator()(const NodeExprBoolLit& lit) {
+                return ConstValue{ lit.value };
             }
-            std::optional<int> operator()(const NodeExprVoid& lit) {
+            std::optional<ConstValue> operator()(const NodeExprVoid& lit) {
                 return {};
             }
-            std::optional<int> operator()(const NodeExprIdent& var) {
+            std::optional<ConstValue> operator()(const NodeExprIdent& var) {
                 auto it = env.find(var.name);
                 if (it != env.end()) return it->second;
-                return std::nullopt; // Variable value not known at compile time
+                return std::nullopt; // Variable ConstValue not known at compile time
             }
-            std::optional<int> operator()(const NodeExprBinary& bin) {
+            std::optional<ConstValue> operator()(const NodeExprBinary& bin) {
                 auto left = evaluator->EvaluateExpr(bin.left, env);
                 auto right = evaluator->EvaluateExpr(bin.right, env);
                 if (!left || !right) return std::nullopt;
 
-                switch (bin.op.type) {
-                case TokenType::plus:  return *left + *right;
-                case TokenType::sub: return *left - *right;
-                case TokenType::mult:  return *left * *right;
-                case TokenType::div: return (*right != 0) ? std::optional<int>(*left / *right) : std::nullopt;
-                default: return std::nullopt;
-                }
+                return evaluator->EvaluateBinOp(bin.op.type, *left, *right);
             }
-            std::optional<int> operator()(const NodeExprCompare& bin) {
+            std::optional<ConstValue> operator()(const NodeExprCompare& bin) {
                 auto left = evaluator->EvaluateExpr(bin.left, env);
                 auto right = evaluator->EvaluateExpr(bin.right, env);
                 if (!left || !right) return std::nullopt;
-                switch (bin.op.type) {
-                case TokenType::less:  return *left < *right;
-                case TokenType::greater: return *left > *right;
-                case TokenType::equal_equal: return *left == *right;
-                case TokenType::less_equal: return *left <= *right;
-                case TokenType::greater_equal: return *left >= *right;
-                case TokenType::not_equal: return *left != *right;
-                default: return std::nullopt;
-                }
+               
+                return evaluator->EvaluateBinOp(bin.op.type, *left, *right);
 
             }
-            std::optional<int> operator()(const NodeExprUnary& un) {
+            std::optional<ConstValue> operator()(const NodeExprUnary& un) {
                 auto val = evaluator->EvaluateExpr(un.expr, env);
-                if (!val) return std::nullopt;
+                if (!val || !val->is_scalar()) return std::nullopt;
+                
 
-                switch (un.op.type) {
-                case TokenType::post_increment: return ++(*val);
-                case TokenType::pre_increment : return ++(*val);
-                case TokenType::post_decrease : return --(*val);
-                case TokenType::pre_decrease  : return --(*val);
+                return std::visit([un](auto Val)->std::optional<ConstValue>
+                    {
+                        switch (un.op) {
+                        case TokenType::post_increment: return ConstValue{ ++(Val) };
+                        case TokenType::pre_increment: return ConstValue{ ++(Val) };
+                        case TokenType::post_decrement: return ConstValue{ --(Val) };
+                        case TokenType::pre_decrement:  return ConstValue{ --(Val) } ;
+                        case TokenType::_not:          return ConstValue{ !(Val) };
+                        case TokenType::negate:        return ConstValue{ -(Val) };
 
-
-                default: return std::nullopt;
-                }
+                        default: return std::nullopt;
+                        }
+                        return std::nullopt;
+                    }, val->get_scalar());
+                
             }
-            std::optional<int> operator()(const NodeExprCall& call) {
+            std::optional<ConstValue> operator()(const NodeExprCall& call) {
 
                 assert(call.func->body && "Function has no body");
 
@@ -92,18 +90,30 @@ public:
                 return result.value;
 
             }
-            std::optional<int> operator()(const NodeExprAssignment& assign) {
+            std::optional<ConstValue> operator()(const NodeExprAssignment& assign) {
                 auto val = evaluator->EvaluateExpr(assign.expr, env);
                 if (!val) return std::nullopt;
 
                 return val;
+            }
+            std::optional<ConstValue> operator()(const NodeExprInitList& assign)
+            {
+                return {};
+            }
+            std::optional<ConstValue> operator()(const NodeExprArrayAccess& assign)
+            {
+                return {};
+            }
+            std::optional<ConstValue> operator()(const NodeExprRef& ref)
+            {
+                return {};
             }
         };
 
         return std::visit(Visitor{ this, env }, expr->var);
     }
 
-    EvalResult EvaluateBlock(const NodeBlock& block, std::unordered_map<std::string, int>& env) {
+    EvalResult EvaluateBlock(const NodeBlock& block, std::unordered_map<std::string, ConstValue>& env) {
         for (const NodeStatement* stat : block.statements) {
             if (!stat) continue;
 
@@ -114,16 +124,16 @@ public:
         }
         return { EvalResult::Status::Next, 0 };
     }
-    EvalResult EvaluateWhile(const NodeStatementWhile& stat, std::unordered_map<std::string, int>& env)
+    EvalResult EvaluateWhile(const NodeStatementWhile& stat, std::unordered_map<std::string, ConstValue>& env)
     {
         NodeStatement stmt{ stat };
         return EvaluateStatement(&stmt, env);
     }
 private:
-    EvalResult EvaluateStatement(const NodeStatement* stat, std::unordered_map<std::string, int>& env) {
+    EvalResult EvaluateStatement(const NodeStatement* stat, std::unordered_map<std::string, ConstValue>& env) {
         struct Visitor {
             ASTEvaluator* evaluator;
-            std::unordered_map<std::string, int>& env;
+            std::unordered_map<std::string, ConstValue>& env;
 
 
             EvalResult operator()(const NodeStatementExit& exit) {
@@ -138,7 +148,7 @@ private:
                     env[var->name] = *val;
                 }
                 else if (auto assign = std::get_if<NodeExprAssignment>(&exit.expr->var)) {
-                    env[assign->name] = *val;
+                    env[assign->name->name] = *val;
                 }
                 return { EvalResult::Status::Next };
             }
@@ -146,7 +156,7 @@ private:
             EvalResult operator()(const NodeStatementVar& var) {
                 auto val = evaluator->EvaluateExpr(var.expr, env);
                 if (!val) return { EvalResult::Status::Failure };
-                env[var.name] = *val; 
+                env[var.name->name] = *val; 
                 return { EvalResult::Status::Next };
             }
             EvalResult operator()(const NodeStatementAssignment& assign) {
@@ -167,7 +177,11 @@ private:
                 auto cond = evaluator->EvaluateExpr(stmt.condition, env);
                 if (!cond) return { EvalResult::Status::Failure };
 
-                if (*cond != 0) {
+                auto is_false = std::visit([](auto Val)->bool
+                    {
+                        return (Val == 0);
+                    }, cond->get_scalar());
+                if (!is_false) {
                     return evaluator->EvaluateBlock(stmt.thenBlock, env);
                 }
                 else if (stmt.elseBlock) {
@@ -181,8 +195,14 @@ private:
                     auto condVal = evaluator->EvaluateExpr(_while.condition, env);
                     if (!condVal) return { EvalResult::Status::Failure }; // Dynamic expression
 
-                    if (*condVal == 0) {
-                        break; 
+                    auto is_false = std::visit([](auto Val)->bool
+                        {
+                            return (Val == 0);
+                        }, condVal->get_scalar());
+
+                    if (is_false)
+                    {
+                        break;
                     }
 
                     EvalResult res = evaluator->EvaluateBlock(_while.block, env);
@@ -208,11 +228,56 @@ private:
             EvalResult operator()(const NodeStatementContinue& _continue) {
                 return { EvalResult::Status::Continue };
             }
+            EvalResult operator()(const NodeStatementArray& arr) {
+                return { EvalResult::Status::Continue };
+            }
            
         };
 
         return std::visit(Visitor{ this, env }, stat->stat);
     }
 
+    std::optional<ConstValue> EvaluateBinOp(TokenType op, const ConstValue& lhs, const ConstValue& rhs) {
+        // Binary operations only apply to scalar primitives
+        if (!lhs.is_scalar() || !rhs.is_scalar()) {
+            return std::nullopt;
+        }
+
+        return std::visit([op](auto L, auto R) -> std::optional<ConstValue> {
+            using CommonType = std::common_type_t<decltype(L), decltype(R)>;
+            auto l_promoted = static_cast<CommonType>(L);
+            auto r_promoted = static_cast<CommonType>(R);
+
+            switch (op) {
+            case TokenType::plus:
+                return ConstValue{ ConstValue::Scalar{ l_promoted + r_promoted } };
+            case TokenType::sub:
+                return ConstValue{ ConstValue::Scalar{ l_promoted - r_promoted } };
+            case TokenType::star:
+                return ConstValue{ ConstValue::Scalar{ l_promoted * r_promoted } };
+            case TokenType::div:
+                if (r_promoted == 0) return std::nullopt; 
+                return ConstValue{ ConstValue::Scalar{ l_promoted / r_promoted } };
+            case TokenType::less:
+                return ConstValue{ ConstValue::Scalar{ l_promoted < r_promoted } };
+            case TokenType::less_equal:
+                return ConstValue{ ConstValue::Scalar{ l_promoted <= r_promoted } };
+            case TokenType::greater:
+                return ConstValue{ ConstValue::Scalar{ l_promoted > r_promoted } };
+            case TokenType::greater_equal:
+                return ConstValue{ ConstValue::Scalar{ l_promoted >= r_promoted } };
+            case TokenType::equal_equal:
+                return ConstValue{ ConstValue::Scalar{ l_promoted == r_promoted } };
+            case TokenType::not_equal:
+                return ConstValue{ ConstValue::Scalar{ l_promoted != r_promoted } };
+			case TokenType::_and:
+				return ConstValue{ ConstValue::Scalar{ l_promoted && r_promoted } };
+
+
+            default:
+                return std::nullopt;
+            }
+            }, lhs.get_scalar(), rhs.get_scalar());
+    }
     NodeProg& _ast;
 };

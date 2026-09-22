@@ -4,6 +4,7 @@
 #include <optional>
 #include <unordered_map>
 #include <vector>
+#include <span>
 #include <memory_resource>
 #include "ASTEvaluator.h"
 #include <unordered_set>
@@ -29,9 +30,9 @@ private:
 		}
 		else if (auto* identifier = std::get_if<NodeExprIdent>(&expr->var))
 		{
-			if (auto value = GetVariableValue(identifier->name))
+			if (auto value = GetVariable(identifier->name))
 			{
-				return _allocator->new_object<NodeExpr>(NodeExprIntLit{ *value });
+				return _allocator->new_object<NodeExpr>(NodeExprRef{value});
 			}
 			return expr;
 		}
@@ -46,27 +47,24 @@ private:
 		}
 		else if (auto* funcCall = std::get_if<NodeExprCall>(&expr->var))
 		{
-			std::vector<int> argValues;
+			std::vector<ConstValue> argValues;
 			for (NodeExpr* arg : funcCall->args) {
 				NodeExpr* foldedArg = Fold(arg);
-				if (auto lit = std::get_if<NodeExprIntLit>(&foldedArg->var)) {
-					argValues.push_back(lit->value);
-				}
-				else {
-					return {};
-				}
+				if(auto value = ToConstValue(foldedArg))
+					argValues.push_back(*value);
 			}
 			if (!funcCall->func || !funcCall->func->body.has_value()) return {};
 
 
 			EnterScope();
 
-			std::optional<int> returnValue = EvaluateFunctionCall(*funcCall->func, argValues);
+			auto returnValue = EvaluateFunctionCall(*funcCall->func, argValues);
 
 			ExitScope();
 
-			if (returnValue.has_value()) {
-				return _allocator->new_object<NodeExpr>(NodeExprIntLit{ *returnValue });
+			if (returnValue)
+			{
+				return ToNodeExpr(*returnValue);
 			}
 			return expr;
 		}
@@ -75,14 +73,39 @@ private:
 			if (auto* ident = std::get_if<NodeExprIdent>(&unary->expr->var))
 			{
 				std::string varName = ident->name;
-				if (auto currentVal = GetVariableValue(varName))
+				if (auto currentVal = GetVariable(varName))
 				{
-					if (unary->op.type == TokenType::increment)
-					{
-						int oldValue = *currentVal;
-						SetVariableValue(varName, oldValue + 1);
-						return _allocator->new_object<NodeExpr>(NodeExprIntLit{ oldValue + 1 });
+					switch (unary->op.type){
+						case TokenType::post_increment:
+							currentVal->data = std::visit([](auto& val) -> ConstValue::Scalar { return ConstValue::Scalar{ val + 1 }; }, currentVal->get_scalar());
+							break;
+						case TokenType::pre_increment:
+							currentVal->data = std::visit([](auto& val) -> ConstValue::Scalar { return ConstValue::Scalar{ val + 1 }; }, currentVal->get_scalar());
+							break;
+						case TokenType::post_decrement:
+							currentVal->data = std::visit([](auto& val) -> ConstValue::Scalar { return ConstValue::Scalar{ val - 1 }; }, currentVal->get_scalar());
+							break;
+						case TokenType::pre_decrement:
+							currentVal->data = std::visit([](auto& val) -> ConstValue::Scalar { return ConstValue::Scalar{ val - 1 }; }, currentVal->get_scalar());
+							break;
+						case TokenType::negate:
+							currentVal->data = std::visit([](auto& val) -> ConstValue::Scalar { return ConstValue::Scalar{ -val }; }, currentVal->get_scalar());
+							break;
+						case TokenType::_not:
+							currentVal->data = std::visit([](auto& val) -> ConstValue::Scalar { return ConstValue::Scalar{ !val }; }, currentVal->get_scalar());
+						case TokenType::ampersand:
+							// Do nothing for ampersand, as it doesn't change the value
+							break;
+						case TokenType::star:
+							// Do nothing for star, as it doesn't change the value
+							break;
+					default:
+						break;
 					}
+
+					auto node = _allocator->new_object<NodeExpr>();
+					node->var = NodeExprRef{ currentVal };
+					return node;
 				}
 				else
 				{
@@ -94,207 +117,75 @@ private:
 		else if (auto* assign = std::get_if<NodeExprAssignment>(&expr->var))
 		{
 			NodeExpr* val = Fold(assign->expr);
-			if (auto lit = std::get_if<NodeExprIntLit>(&val->var)) {
-				SetVariableValue(assign->name, lit->value);
+			if (auto value = ToConstValue(expr)) {
+				SetVariableValue(assign->name->name, ConstValue{ *value });
 			}
 			else {
-				InvalidateVariable(assign->name);
+				InvalidateVariable(assign->name->name);
 			}
+		}
+		else if (auto* list = std::get_if<NodeExprInitList>(&expr->var))
+		{
+			
+			for (size_t i = 0; i < list->values.size(); i++)
+			{
+				list->values[i] = Fold(list->values[i]);
+			}
+			{
+				auto node = _allocator->new_object<NodeExpr>();
+				node->var = *list;
+				return node;
+			}
+		}
+		else if (auto* access = std::get_if<NodeExprArrayAccess>(&expr->var))
+		{
+			ASTEvaluator evaluator(*ast);
+			std::vector<size_t> indices;
+			for (size_t i = 0; i < access->indices.size(); i++)
+			{
+				auto index = access->indices[i];
+				if (auto indexVal = std::get_if<NodeExprIntLit>(&index->var)) { // if already an int literal
+					if (indexVal->value >= access->targetArrayDimension[i])
+					{
+						std::cerr << "Warning index " << indexVal->value
+							<< " is out of bound of array '" << access->name->name << "'\n";
+
+					}
+					indices.push_back(indexVal->value);
+					continue;
+				}
+				if (auto value = evaluator.EvaluateExpr(index, _allEnvVariables)) //Evaluate index to constant expr
+				{
+					
+					auto newIndex = ToNodeExpr(*value); //Todo add valid checking
+					access->indices[i] = newIndex;
+
+					auto indexValue = std::get_if<NodeExprIntLit>(&newIndex->var);
+
+					if (indexValue->value >= access->targetArrayDimension[i])
+					{
+						std::cerr << "Warning index " << indexValue->value
+							<< " is out of bound of array '" << access->name->name << "'\n";
+
+					}
+					indices.push_back(indexValue->value);
+					continue;
+				}
+			}
+			auto array = GetVariable(access->name->name);
+			if (auto result = ConstValue::get_value_from_array(&*array, indices)) {
+				{
+					auto node = _allocator->new_object<NodeExpr>();
+					node->var = NodeExprRef{ result };
+					return node;
+				}
+			}
+				
 		}
 		return expr;
 	}
 
-	int Compute(Token op, int left, int right)
-	{
-		switch (op.type)
-		{
-		case TokenType::plus:          return left + right;
-		case TokenType::mult:          return left * right;
-		case TokenType::sub:           return left - right;
-		case TokenType::greater:       return (left > right);
-		case TokenType::greater_equal: return (left >= right);
-		case TokenType::less:          return (left < right);
-		case TokenType::less_equal:    return (left <= right);
-		case TokenType::equal_equal:   return (left == right);
-		default:                        return 0;
-		}
-	}
-
-	std::optional<NodeExpr*> FoldBinaryExpr(NodeExprBinary* bin)
-	{
-		auto* leftInd = std::get_if<NodeExprIdent>(&bin->left->var);
-		auto* rightInd = std::get_if<NodeExprIdent>(&bin->right->var);
-		if (leftInd && rightInd)
-		{
-			if (leftInd->name == rightInd->name)
-			{
-				if (bin->op.type == TokenType::sub)
-				{
-					return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 0 });
-				}
-				if (bin->op.type == TokenType::div)
-				{
-					auto value = GetVariableValue(leftInd->name);
-					if (value && *value != 0) {
-						return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 1 });
-					}
-				}
-			}
-		}
-
-		NodeExpr* foldedLeft = Fold(bin->left);
-		NodeExpr* foldedRight = Fold(bin->right);
-
-		auto* leftLit = std::get_if<NodeExprIntLit>(&foldedLeft->var);
-		auto* rightLit = std::get_if<NodeExprIntLit>(&foldedRight->var);
-
-		if (leftLit && rightLit) {
-			int result = Compute(bin->op, leftLit->value, rightLit->value);
-			return _allocator->new_object<NodeExpr>(NodeExprIntLit{ result });
-		}
-		else if (rightLit)
-		{
-			if (bin->op.type == TokenType::plus || bin->op.type == TokenType::sub)
-			{
-				if (rightLit->value == 0) return foldedLeft;
-			}
-			else if (bin->op.type == TokenType::mult)
-			{
-				if (rightLit->value == 0) return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 0 });
-				if (rightLit->value == 1) return foldedLeft;
-			}
-			else if (bin->op.type == TokenType::div)
-			{
-				if (leftLit->value == 1) return foldedRight;
-			}
-		}
-		else if (leftLit)
-		{
-			if (bin->op.type == TokenType::mult)
-			{
-				if (leftLit->value == 0) return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 0 });
-				if (leftLit->value == 1) return foldedRight;
-			}
-			
-		}
-		return {};
-	}
-
-	std::optional<NodeExpr*> FoldCompExpr(NodeExprCompare* comp)
-	{
-		NodeExpr* foldedLeft = Fold(comp->left);
-		NodeExpr* foldedRight = Fold(comp->right);
-
-		auto* leftLit = std::get_if<NodeExprIntLit>(&foldedLeft->var);
-		auto* rightLit = std::get_if<NodeExprIntLit>(&foldedRight->var);
-
-		if (leftLit && rightLit) {
-			int result = Compute(comp->op, leftLit->value, rightLit->value);
-			return _allocator->new_object<NodeExpr>(NodeExprIntLit{ result });
-		}
-
-		auto* leftBool = std::get_if<NodeExprBoolLit>(&foldedLeft->var);
-		auto* rightBool = std::get_if<NodeExprBoolLit>(&foldedRight->var);
-
-		if (leftBool)
-		{
-			if (comp->op.type == TokenType::_and && leftBool->value == false)
-				return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 0 });
-			if (comp->op.type == TokenType::_or && leftBool->value == true)
-				return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 1 });
-		}
-		if (rightBool)
-		{
-			if (comp->op.type == TokenType::_and && rightBool->value == false)
-				return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 0 });
-			if (comp->op.type == TokenType::_or && rightBool->value == true)
-				return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 1 });
-		}
-
-		return {};
-	}
-
-	// -------------------------------------------------------------------------
-	// SIMULATION PASS: Executes variable side-effects WITHOUT mutating the AST
-	// -------------------------------------------------------------------------
-	void SimulateStatement(NodeStatement& statement)
-	{
-		struct SimVisitor
-		{
-			ConstantFolder* analyzer;
-
-			void operator()(NodeStatementExit& stat) {}
-			void operator()(NodeStatementReturn& stat) {}
-			void operator()(NodeStatementExpr& stat) {
-				analyzer->Fold(stat.expr);
-			}
-			void operator()(NodeStatementVar& stat) {
-				NodeExpr* val = analyzer->Fold(stat.expr);
-				if (auto lit = std::get_if<NodeExprIntLit>(&val->var)) {
-					analyzer->constants.back().variable[stat.name] = lit->value;
-				}
-				else {
-					analyzer->InvalidateVariable(stat.name);
-				}
-			}
-			void operator()(NodeStatementAssignment& stat) {
-				NodeExpr* val = analyzer->Fold(stat.expr);
-				if (auto lit = std::get_if<NodeExprIntLit>(&val->var)) {
-					analyzer->SetVariableValue(stat.name, lit->value);
-				}
-				else {
-					analyzer->InvalidateVariable(stat.name);
-				}
-			}
-			void operator()(NodeBlock& block) {
-				analyzer->EnterScope();
-				analyzer->SimulateBlock(block);
-				analyzer->ExitScope();
-			}
-			void operator()(NodeStatementIf& _if) {
-				NodeExpr* cond = analyzer->Fold(_if.condition);
-				if (auto val = std::get_if<NodeExprIntLit>(&cond->var)) {
-					if (val->value) {
-						analyzer->SimulateBlock(_if.thenBlock);
-					}
-					else if (_if.elseBlock.has_value()) {
-						analyzer->SimulateBlock(_if.elseBlock.value());
-					}
-				}
-			}
-			void operator()(NodeStatementWhile& _while) {
-				size_t iterations = 0;
-				while (true) {
-					NodeExpr* cond = analyzer->Fold(_while.condition);
-					auto* lit = std::get_if<NodeExprIntLit>(&cond->var);
-					if (!lit || lit->value == 0 || ++iterations > 10000) break;
-					analyzer->SimulateBlock(_while.block);
-				}
-			}
-			void operator()(NodeStatementBreak& _break)
-			{
-				return;
-			}
-			void operator()(NodeStatementContinue& _continue)
-			{
-				return;
-			}
-		};
-
-		SimVisitor simVisitor{ this };
-		std::visit(simVisitor, statement.stat);
-	}
-
-	void SimulateBlock(NodeBlock& block)
-	{
-		for (NodeStatement* stat : block.statements) {
-			SimulateStatement(*stat);
-		}
-	}
-
-	// -------------------------------------------------------------------------
-	// AST TRANSFORMATION PASS
-	// -------------------------------------------------------------------------
+	
 	std::optional<NodeStatement> AnalyzeStatement(NodeStatement& statement)
 	{
 		struct Visitor
@@ -310,15 +201,15 @@ private:
 			{
 				stat.expr = analyzer->Fold(stat.expr);
 				if (auto value = std::get_if<NodeExprIntLit>(&stat.expr->var)) {
-					if (analyzer->GetVariableValue(stat.name).has_value()) {
-						analyzer->SetVariableValue(stat.name, value->value);
-					}
-					else {
-						analyzer->constants.back().variable[stat.name] = value->value;
-					}
+					analyzer->GenerateVariable(stat.name->name, ConstValue{ value->value });
+					
+				}
+				else if (auto value = std::get_if<NodeExprBoolLit>(&stat.expr->var)) {
+					analyzer->GenerateVariable(stat.name->name, ConstValue{ value->value });
+		
 				}
 				else {
-					analyzer->InvalidateVariable(stat.name);
+					analyzer->InvalidateVariable(stat.name->name);
 				}
 				return NodeStatement{ stat };
 			}
@@ -359,15 +250,15 @@ private:
 			std::optional<NodeStatement> operator()(NodeStatementWhile& _while)
 			{
 
-				std::unordered_map<std::string, int> testEnv;
+				std::unordered_map<std::string, ConstValue> testEnv;
 
 				for (const auto& scope : analyzer->constants) {
 					for (const auto& [name, value] : scope.variable) {
-						testEnv[name] = value; 
+						testEnv[name] = value;
 					}
 				}
 
-				
+
 				std::unordered_set<std::string> existingVars;
 				for (const auto& [name, _] : testEnv) {
 					existingVars.insert(name);
@@ -384,9 +275,9 @@ private:
 					}
 
 					if (result.status == EvalResult::Status::Return) {
-						return NodeStatement{ NodeStatementReturn{
-							analyzer->_allocator->new_object<NodeExpr>(NodeExprIntLit{ result.value })
-						} };
+						//return NodeStatement{ NodeStatementReturn{
+							//analyzer->_allocator->new_object<NodeExpr>(NodeExprIntLit{ result.ConstValue })
+						//} };
 					}
 
 					return std::nullopt;
@@ -396,7 +287,7 @@ private:
 				analyzer->AnalyzeBlock(_while.block);
 
 				return NodeStatement{ _while };
-			
+
 			}
 
 			std::optional<NodeStatement> operator()(NodeStatementBreak& _break)
@@ -415,73 +306,222 @@ private:
 			std::optional<NodeStatement> operator()(NodeStatementReturn& _ret)
 			{
 				_ret.expr = analyzer->Fold(_ret.expr);
-				auto value = std::get_if<NodeExprIntLit>(&_ret.expr->var);
-				if (value) analyzer->_lastReturnValue = value->value ;
-				else analyzer->_lastReturnValue = { };
+				_ret.expr = analyzer->ToRValue(_ret.expr);
+	
 				return NodeStatement{ _ret };
 			}
 			std::optional<NodeStatement> operator()(NodeStatementAssignment& assign)
 			{
 				assign.expr = analyzer->Fold(assign.expr);
+				if (auto value = analyzer->ToConstValue(assign.expr)) {
 
-				if (auto lit = std::get_if<NodeExprIntLit>(&assign.expr->var)) {
-					analyzer->SetVariableValue(assign.name, lit->value);
+					assign.target = analyzer->Fold(assign.target);
+					if (auto* ref = std::get_if<NodeExprRef>(&assign.target->var)) {
+						*(ref->ptr) = *value; 
+					}
+					
 				}
 				else {
 					analyzer->InvalidateVariable(assign.name);
 				}
-
 				return NodeStatement{ assign };
+				
 			}
+			std::optional<NodeStatement> operator()(NodeStatementArray& arr)
+			{
+				auto list = NodeExpr{*arr.initializer};
+				//arr.initializer = analyzer->Fold(&list);
+
+
+				std::vector<ConstValue> data;
+
+				std::vector<size_t> dim;
+
+				for (auto dimExpr : arr.name->Type.dimensions)
+				{
+					if (auto dimLit = std::get_if<NodeExprIntLit>(&dimExpr->var))
+					{
+						dim.push_back(dimLit->value);
+					}
+					else
+					{
+						std::cerr << "Error: Array dimension is not a constant integer literal.\n";
+						return std::nullopt;
+					}
+				}
+				if (arr.initializer)
+				{
+					std::span<const size_t> element_dims = std::span(dim).subspan(1);
+
+					for (auto value : arr.initializer->values)
+					{
+						auto const_val = analyzer->ToConstValue(value, arr.name->Type, element_dims);
+						if (const_val.has_value()) {
+							data.push_back(const_val.value());
+						}
+						else {
+						}
+					}
+				}
+
+				analyzer->GenerateVariable(arr.name->name, ConstValue{ data });
+				return NodeStatement{ arr };
+			}
+
 		};
 
 		Visitor visitor{ this };
 		return std::visit(visitor, statement.stat);
 	}
 
-	std::optional<int> GetVariableValue(const std::string& name)
+	std::optional<ConstValue> Compute(Token op, ConstValue lhs, ConstValue rhs)
 	{
-		auto find = std::find_if(
-			constants.rbegin(), constants.rend(),
-			[&](const Scope& s) {
-				return s.variable.contains(name);
+		if (!lhs.is_scalar() || !rhs.is_scalar()) {
+			return std::nullopt;
+		}
+		return std::visit([op](auto L, auto R) -> std::optional<ConstValue> {
+			using CommonType = std::common_type_t<decltype(L), decltype(R)>;
+			auto l_promoted = static_cast<CommonType>(L);
+			auto r_promoted = static_cast<CommonType>(R);
+
+			switch (op.type) {
+			case TokenType::plus:
+				return ConstValue{ ConstValue::Scalar{ l_promoted + r_promoted } };
+			case TokenType::sub:
+				return ConstValue{ ConstValue::Scalar{ l_promoted - r_promoted } };
+			case TokenType::star:
+				return ConstValue{ ConstValue::Scalar{ l_promoted * r_promoted } };
+			case TokenType::div:
+				if (r_promoted == 0) return std::nullopt;
+				return ConstValue{ ConstValue::Scalar{ l_promoted / r_promoted } };
+			case TokenType::less:
+				return ConstValue{ ConstValue::Scalar{ l_promoted < r_promoted } };
+			case TokenType::less_equal:
+				return ConstValue{ ConstValue::Scalar{ l_promoted <= r_promoted } };
+			case TokenType::greater:
+				return ConstValue{ ConstValue::Scalar{ l_promoted > r_promoted } };
+			case TokenType::greater_equal:
+				return ConstValue{ ConstValue::Scalar{ l_promoted >= r_promoted } };
+			case TokenType::equal_equal:
+				return ConstValue{ ConstValue::Scalar{ l_promoted == r_promoted } };
+			case TokenType::not_equal:
+				return ConstValue{ ConstValue::Scalar{ l_promoted != r_promoted } };
+			default:
+				return std::nullopt;
 			}
-		);
-		if (find != constants.rend())
+			}, lhs.get_scalar(), rhs.get_scalar());
+	}
+
+	std::optional<NodeExpr*> FoldBinaryExpr(NodeExprBinary* bin)
+	{
+		auto* leftInd = std::get_if<NodeExprIdent>(&bin->left->var);
+		auto* rightInd = std::get_if<NodeExprIdent>(&bin->right->var);
+		if (leftInd && rightInd)
 		{
-			return find->variable.at(name);
+			if (leftInd->name == rightInd->name)
+			{
+				if (bin->op.type == TokenType::sub)
+				{
+					return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 0 });
+				}
+				if (bin->op.type == TokenType::div)
+				{
+					auto value = GetVariable(leftInd->name);
+					//if (value && *value != 0) {
+					//	return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 1 });
+					//}
+				}
+			}
+		}
+
+		NodeExpr* foldedLeft = ToRValue(Fold(bin->left));
+		NodeExpr* foldedRight = ToRValue(Fold(bin->right));
+
+		auto leftLit = ToConstValue(foldedLeft);
+		auto rightLit = ToConstValue(foldedRight);
+
+		if (leftLit && rightLit) {
+			auto result = Compute(bin->op, *leftLit, *rightLit);
+
+			if (result) {
+				return ToNodeExpr(*result);
+			}
+			return nullptr;
+		}
+		else if (rightLit)
+		{
+			if (bin->op.type == TokenType::plus || bin->op.type == TokenType::sub)
+			{
+				//if (rightLit->value == 0) return foldedLeft;
+			}
+			else if (bin->op.type == TokenType::star)
+			{
+				//if (rightLit->value == 0) return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 0 });
+				//if (rightLit->value == 1) return foldedLeft;
+			}
+			else if (bin->op.type == TokenType::div)
+			{
+				//if (leftLit->value == 1) return foldedRight;
+			}
+		}
+		else if (leftLit)
+		{
+			if (bin->op.type == TokenType::star)
+			{
+				//if (leftLit->value == 0) return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 0 });
+				//if (leftLit->value == 1) return foldedRight;
+			}
+			
 		}
 		return {};
 	}
 
-	void SetVariableValue(const std::string& name, int value)
+	
+	std::optional<NodeExpr*> FoldCompExpr(NodeExprCompare* comp)
 	{
-		auto find = std::find_if(
-			constants.rbegin(), constants.rend(),
-			[&](const Scope& s) {
-				return s.variable.contains(name);
-			}
-		);
-		if (find != constants.rend())
-		{
-			find->variable.at(name) = value;
-		}
-	}
+		NodeExpr* foldedLeft = Fold(comp->left);
+		auto lhs = ToConstValue(foldedLeft);
 
-	void InvalidateVariable(const std::string& name)
-	{
-		auto find = std::find_if(
-			constants.rbegin(), constants.rend(),
-			[&](const Scope& s) {
-				return s.variable.contains(name);
-			}
-		);
-
-		if (find != constants.rend())
+		if (lhs && lhs->is_scalar())
 		{
-			find->variable.erase(name);
+			auto result = std::visit([&](auto L) -> NodeExpr* {
+				if (comp->op.type == TokenType::_and && L == 0)
+					return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ false });
+				else if (comp->op.type == TokenType::_or && L != 0)
+					return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ true });
+				return nullptr;
+			}, lhs->get_scalar());
+
+			if (result) return result;
 		}
+		NodeExpr* foldedRight = Fold(comp->right);
+		auto rhs = ToConstValue(foldedRight);
+
+		if (rhs && rhs->is_scalar())
+		{
+			auto result = std::visit([&](auto R) -> NodeExpr* {
+				if (comp->op.type == TokenType::_and && R == 0)
+					return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ false });
+				else if (comp->op.type == TokenType::_or && R != 0)
+					return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ true });
+				return nullptr;
+				}, rhs->get_scalar());
+			if (result) return result;
+
+		}
+		
+
+		if (lhs && rhs) {
+			if (auto result = Compute(comp->op, *lhs, *rhs))
+			{
+				return ToNodeExpr(*result);
+			}
+		}
+
+		return {};
 	}
+	
+	
 
 	void AnalyzeBlock(NodeBlock& block)
 	{
@@ -521,12 +561,12 @@ private:
 		}
 	}
 
-	std::optional<int> EvaluateFunctionCall(const NodeFunction& func, const std::vector<int>& argValues) {
-		std::unordered_map<std::string, int> localEnv;
+	std::optional<ConstValue> EvaluateFunctionCall(const NodeFunction& func, const std::vector<ConstValue>& argValues) {
+		std::unordered_map<std::string, ConstValue> localEnv;
 		for (size_t i = 0; i < func.parameters.size(); ++i) {
-			localEnv[func.parameters[i].name] = argValues[i];
+			//localEnv[func.parameters[i].name] = argValues[i]; // set the function local environnement
 		}
-
+		assert(func.body && "Function has no body");
 		ASTEvaluator evaluator(*ast);
 		EvalResult result = evaluator.EvaluateBlock(func.body.value(), localEnv);
 
@@ -537,25 +577,191 @@ private:
 		return std::nullopt; // Evaluation failed or did not return
 	}
 
-	
-
 	void EnterScope() { constants.push_back({}); }
 	void ExitScope() { constants.pop_back(); }
 
-	std::optional<int> GetLastReturnValue()
+
+	
+	std::optional<ConstValue> ToConstValue(const NodeExpr* expr)
 	{
-		return _lastReturnValue;
+		if (auto val = std::get_if<NodeExprIntLit>(&expr->var))
+		{
+			return ConstValue{ ConstValue::Scalar{val->value} };
+		}
+		else if (auto val = std::get_if<NodeExprArrayAccess>(&expr->var))
+		{
+			return ConstValue{ ConstValue::Scalar{} };
+		}
+		else if (auto val = std::get_if<NodeExprInitList>(&expr->var))
+		{
+			std::vector<ConstValue> data;
+			for (auto value : val->values)
+			{
+				if (auto v = ToConstValue(value)) {
+					data.push_back(*v);
+				}
+			}
+
+			return ConstValue{ data };
+		}
+		else if (auto val = std::get_if<NodeExprRef>(&expr->var))
+		{
+			return *val->ptr;
+		}
+
+
+		return std::nullopt;
 	}
+
+	std::optional<ConstValue> ToConstValue(
+		const NodeExpr* expr,
+		Type base_type,
+		std::span<const size_t> dims
+	) {
+		if (!expr) return std::nullopt;
+
+		if (auto list = std::get_if<NodeExprInitList>(&expr->var))
+		{
+			if (list->values.empty()) {
+				return CreateDefaultConstValue(base_type, dims);
+			}
+
+			std::span<const size_t> child_dims = dims.empty() ? dims : dims.subspan(1);
+
+			std::vector<ConstValue> inner_data;
+			for (auto child : list->values) {
+				auto val = ToConstValue(child, base_type, child_dims);
+				if (!val) return std::nullopt;
+				inner_data.push_back(*val);
+			}
+			return ConstValue{ inner_data };
+		}
+
+		return ToConstValue(expr);
+	}
+
+
+	ConstValue CreateDefaultConstValue(Type base_type, std::span<const size_t> dims)
+	{
+		if (dims.empty()) {
+			switch (base_type.kind) {
+			case Type::Kind::Float: return ConstValue{ ConstValue::Scalar{ 0.0 } };
+			case Type::Kind::Bool:  return ConstValue{ ConstValue::Scalar{ int64_t(0) } };
+			case Type::Kind::Int:
+			default:          return ConstValue{ ConstValue::Scalar{ int64_t(0) } };
+			}
+		}
+
+		size_t current_dim_size = dims[0];
+		auto child_dims = dims.subspan(1);
+
+		std::vector<ConstValue> elements;
+		elements.reserve(current_dim_size);
+		for (size_t i = 0; i < current_dim_size; ++i) {
+			elements.push_back(CreateDefaultConstValue(base_type, child_dims));
+		}
+		return ConstValue{ elements };
+	}
+	NodeExpr* ToNodeExpr(const ConstValue& value)
+	{
+		return std::visit([this](ConstValue::Scalar Val)-> NodeExpr*
+			{
+				if (auto result = std::get_if<int64_t>(&Val))
+				{
+					return _allocator->new_object<NodeExpr>(NodeExprIntLit{ *result });
+				}
+
+				return nullptr;
+			}
+		, value.get_scalar());
+	}
+	NodeExpr* ToRValue(NodeExpr* expr) {
+		if (!expr) return nullptr;
+
+		if (auto* ref = std::get_if<NodeExprRef>(&expr->var)) {
+			if (ref->ptr) {
+				if (auto scalarInt = std::get_if<int64_t>(&ref->ptr->get_scalar())) {
+					return _allocator->new_object<NodeExpr>(NodeExprIntLit{ *scalarInt });
+				}
+			}
+		}
+
+		return expr;
+	}
+	ConstValue* GetVariable(const std::string& name)
+	{
+		auto find = std::find_if(
+			constants.rbegin(), constants.rend(),
+			[&](const Scope& s) {
+				return s.variable.contains(name);
+			}
+		);
+		if (find != constants.rend())
+		{
+			return &find->variable.at(name);
+		}
+		return nullptr;
+	}
+
+	void GenerateVariable(const std::string& name, const ConstValue& value)
+	{
+		constants.back().variable[name] = value;
+		_allEnvVariables[name] = value;
+
+	}
+	void SetVariableValue(const std::string& name, const ConstValue& value)
+	{
+		auto find = std::find_if(
+			constants.rbegin(), constants.rend(),
+			[&](const Scope& s) {
+				return s.variable.contains(name);
+			}
+		);
+		if (find != constants.rend())
+		{
+			find->variable.at(name) = value;
+			_allEnvVariables.at(name) = value;
+		}
+	}
+	void SetVariableValue(const std::string& name, const ConstValue& value, std::vector<size_t> indices)
+	{
+
+		auto array = GetVariable(name);
+
+		if (array) {
+
+			if (auto data = ConstValue::get_value_from_array(array, indices)) {
+				*data = value;
+			}
+		}
+	}
+
+	void InvalidateVariable(const std::string& name)
+	{
+		auto find = std::find_if(
+			constants.rbegin(), constants.rend(),
+			[&](const Scope& s) {
+				return s.variable.contains(name);
+			}
+		);
+
+		if (find != constants.rend())
+		{
+			find->variable.erase(name);
+			_allEnvVariables.erase(name);
+		}
+	}
+
+
 
 	struct Scope
 	{
-		std::unordered_map<std::string, int> variable;
+		std::unordered_map<std::string, ConstValue> variable;
 	};
-
-private:
+	std::unordered_map<std::string, ConstValue> _allEnvVariables;
+	std::vector<Scope> constants;
 	NodeProg* ast;
 	std::pmr::polymorphic_allocator<NodeExpr>* _allocator;
-	std::vector<Scope> constants;
-
 	std::optional<int> _lastReturnValue;
+
 };

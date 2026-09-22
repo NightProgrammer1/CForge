@@ -1,438 +1,19 @@
 #pragma once
-#include "parser.h"
+#include "IRLowering.h"
 #include <unordered_map>
 #include <sstream>
 #include <algorithm>
-#include <sstream>
+#include "PostMachineInstruction.h"
+#include "RegisterAllocation.h"
 
-
-
-class Generator
+class X86Generator
 {
 
 public:
-	Generator(NodeProg&& prog) : root(std::move(prog))
-	{ 
-		// Ensure there is always at least one scope (e.g., global scope)
-		scopes.emplace_back(); // std::unordered_map<std::string, Var>()
-	}
-
-	void GenerateExpression(const NodeExpr& expression)
+	X86Generator(MachineProgram& prog) : program(std::move(prog))
 	{
-		struct Visitor
-		{
 
-			Visitor(Generator* gen) : generator(gen) {}
-			void operator()(const NodeExprIntLit& expr)
-			{
-
-				generator->_output << "    mov rax, " << expr.value << "\n";
-				generator->push("rax");
-
-			}
-			void operator()(const NodeExprIdent& stat)
-			{
-				bool found = false;
-				for (size_t i = generator->scopes.size(); i-- > 0; )
-				{
-					if (generator->scopes[i].variables.contains(stat.name))
-					{
-						const auto& var = generator->scopes[i].variables.at(stat.name);
-						size_t offset = var.stack_location * 8;
-
-						generator->_output << "    mov rax, QWORD [rbp - "
-							<< std::to_string(offset) << "]\n";
-
-						generator->push("rax");
-						found = true;
-						break;
-					}
-				}
-
-				if (!found)
-				{
-					std::cerr << "This variable (" << stat.name << ") is undeclared." << std::endl;
-					exit(EXIT_FAILURE);
-				}
-			}
-
-			void operator()(const NodeExprBinary& expr)
-			{
-				// Evaluate left and right subexpressions
-				generator->GenerateExpression(*expr.left);
-				generator->GenerateExpression(*expr.right);
-				// Pop right into rdi, left into rax
-				generator->pop("rdi");
-				generator->pop("rax");
-				if (expr.op.type == TokenType::plus)
-				{
-					generator->_output << "    add rax, rdi\n";
-				}
-				else if (expr.op.type == TokenType::sub)
-				{
-					generator->_output << "    sub rax, rdi\n";
-				}
-				else if (expr.op.type == TokenType::mult)
-				{
-					generator->_output << "    imul rax, rdi\n";
-				}
-				else if (expr.op.type == TokenType::div)
-				{
-					generator->_output << "    xor rdx, rdx\n"; // Clear upper bits for unsigned division
-					generator->_output << "    div rdi\n";
-				}
-				// push result
-				generator->push("rax");
-			}
-			void operator()(const NodeExprBoolLit& expr)
-			{
-				generator->_output
-					<< "    mov rax, "
-					<< (expr.value ? 1 : 0)
-					<< "\n";
-
-				generator->push("rax");
-			}
-			void operator()(const NodeExprCompare& expr)
-			{
-				if (expr.op.type == TokenType::_or)
-				{
-					std::string trueLabel = generator->CreateLabel("or_true");
-					std::string endLabel = generator->CreateLabel("or_end");
-
-					// Evaluate left
-					generator->GenerateExpression(*expr.left);
-					generator->pop("rax");
-
-					generator->_output << "    test rax, rax\n";
-					generator->_output << "    jnz " << trueLabel << "\n";
-
-
-					// Evaluate right
-					generator->GenerateExpression(*expr.right);
-					generator->pop("rax");
-
-					generator->_output << "    test rax, rax\n";
-					generator->_output << "    jnz " << trueLabel << "\n";
-
-
-					// false case
-					generator->_output << "    mov rax, 0\n";
-					generator->_output << "    jmp " << endLabel << "\n";
-
-
-					// true case
-					generator->_output << "    " << trueLabel << ":\n";
-					generator->_output << "    mov rax, 1\n";
-
-
-					// done
-					generator->_output << "    " << endLabel << ":\n";
-
-					generator->push("rax");
-
-					return;
-				}
-
-				if (expr.op.type == TokenType::_and)
-				{
-					std::string falseLabel = generator->CreateLabel("and_false");
-					std::string endLabel = generator->CreateLabel("and_end");
-
-					// 1. Evaluate left operand
-					generator->GenerateExpression(*expr.left);
-					generator->pop("rax");
-
-					// if left is false (0), jump directly to false case
-					generator->_output << "    test rax, rax\n";
-					generator->_output << "    jz " << falseLabel << "\n";
-
-					// 2. Evaluate right operand 
-					generator->GenerateExpression(*expr.right);
-					generator->pop("rax");
-
-					// if right is false (0), jump to false case
-					generator->_output << "    test rax, rax\n";
-					generator->_output << "    jz " << falseLabel << "\n";
-
-					// TRUE case 
-					generator->_output << "    mov rax, 1\n";
-					generator->_output << "    jmp " << endLabel << "\n";
-
-					// FALSE case
-					generator->_output << "    " << falseLabel << ":\n";
-					generator->_output << "    mov rax, 0\n";
-
-					// Done
-					generator->_output << "    " << endLabel << ":\n";
-
-					generator->push("rax");
-
-					return;
-				}
-				generator->GenerateExpression(*expr.left);
-				generator->GenerateExpression(*expr.right);
-				// Pop right into rdi, left into rax
-				generator->pop("rdi");
-				generator->pop("rax");
-
-
-				generator->_output << "    cmp rax, rdi\n";
-
-				if (expr.op.type == TokenType::greater)
-				{
-					generator->_output << "    setg al\n";
-				}
-				else if (expr.op.type == TokenType::greater_equal) // >=
-				{
-					generator->_output << "    setge al\n";
-				}
-				else if (expr.op.type == TokenType::less)
-				{
-					generator->_output << "    setl al\n";
-				}
-				else if (expr.op.type == TokenType::less_equal) // <=
-				{
-					generator->_output << "    setle al\n";
-				}
-				else if (expr.op.type == TokenType::equal_equal) // ==
-				{
-					generator->_output << "    sete al\n";
-				}
-				else if (expr.op.type == TokenType::not_equal) // !=
-				{
-					generator->_output << "    setne al\n";
-				}
-
-				generator->_output << "    movzx rax, al\n";
-				generator->push("rax");
-			}
-			void operator()(const NodeExprUnary& expr)
-			{
-				// Ensure the operand is an identifier (variable)
-				if (auto identExpr = std::get_if<NodeExprIdent>(&expr.expr->var))
-				{
-					const std::string& varName = identExpr->name;
-
-					// 1. Locate the variable on the stack
-					size_t varOffset = generator->GetVariableOffset(varName);
-					if (expr.op.type == TokenType::increment)
-					{
-						// 2. Load the OLD value into rax 
-						generator->_output << "    mov rax, QWORD [rbp - " << varOffset << "]\n";
-
-						// 3. Increment the actual variable stored in memory
-						generator->_output << "    add QWORD [rbp - " << varOffset << "], 1\n";
-
-						// 4. Push the OLD value onto the stack for surrounding operations
-						generator->push("rax");
-					}
-				}
-				if (expr.op.type == TokenType::_not)
-				{
-					generator->GenerateExpression(*expr.expr);
-					generator->pop("rax");
-
-					generator->_output << "    test rax, rax\n";
-
-					generator->_output << "    sete al\n";
-
-					generator->_output << "    movzx rax, al\n";
-
-					generator->push("rax");
-
-
-				}
-			}
-			void operator()(const NodeExprCall& call) 
-			{
-				auto function = std::find_if(
-					generator->root.functions.begin(),
-					generator->root.functions.end(),
-					[&](const NodeFunction& func) {
-						return func.name == call.name;
-					}
-				);
-
-				if (function == generator->root.functions.end()) {
-					std::cerr << "Undeclared function: " << call.name << std::endl;
-					exit(EXIT_FAILURE);
-				}
-
-				if (call.args.size() != function->parameters.size())
-				{
-					std::stringstream paramsDef;
-					for (auto& parms : function->parameters)
-					{
-						switch (parms.type)
-						{
-						case Type::Int:
-							paramsDef << "int";
-							break;
-						default:
-							break;
-						}
-						paramsDef <<  " " << parms.name << ", ";
-					}
-
-					std::string def = paramsDef.str();
-					if (def.length() >= 2) {
-						def.erase(def.length() - 2); // Strips trailing ", "
-					}
-
-					std::cerr << "The number of parameters does not match function definition: "
-						<< call.name << "(" << def << ")" << std::endl;
-					exit(EXIT_FAILURE);
-				}
-				for (size_t i = 0; i < call.args.size(); ++i)
-				{
-					generator->GenerateExpression(*(call.args[i]));
-				}
-
-				for (size_t i = call.args.size(); i-- > 0; )
-				{
-					if (i < generator->PARAM_REGS.size())
-					{
-						generator->pop(generator->PARAM_REGS[i]);
-					}
-				}
-				generator->_output << "    call " << call.name << "\n";
-				generator->push("rax");
-			}
-			void operator()(const NodeExprVoid&){}
-			void operator()(const NodeExprAssignment&) {}
-			Generator* generator;
-		};
-		Visitor visit(this);
-		std::visit(visit, expression.var);
 	}
-	void GenerateStatement(const NodeStatement& statement)
-	{
-		struct Visitor
-		{
-			Visitor(Generator* gen) : generator(gen){}
-			Generator* generator;
-			void operator()(const NodeStatementExit& stat)
-			{
-				generator->GenerateExpression(*(stat.expr));
-
-				generator->_output << "    mov rdi, rax\n";
-
-				generator->_output << "    mov rax, 60\n";
-				generator->_output << "    syscall\n";
-			}
-			void operator()(const NodeStatementVar& stat)
-			{
-				
-				bool exist = generator->scopes.back().variables.contains(stat.name);
-				if (exist)
-				{
-					std::cerr << "This variable is arealdy declared: " << stat.name << std::endl;
-					exit(EXIT_FAILURE);
-				}
-				
-				size_t var_slot = ++generator->_varCount;
-				generator->scopes.back().variables.insert({ stat.name, Var{.stack_location = var_slot} });
-
-				generator->GenerateExpression(*(stat.expr));
-
-
-				size_t offset = var_slot * 8;
-				generator->_output << "    mov QWORD [rbp - " << std::to_string(offset) << "], rax\n";
-
-			}
-			void operator()(const NodeBlock& block)
-			{
-				generator->GenerateBlock(block);
-
-			}
-			void operator()(const NodeStatementIf& _if)
-			{
-				generator->GenerateIf(_if);
-			}
-			void operator()(const NodeStatementWhile& _while)
-			{
-				std::string startLabel = generator->CreateLabel("while_start");
-				std::string endLabel = generator->CreateLabel("while_end");
-				generator->_output << "    " << startLabel << ":\n";
-				generator->GenerateExpression(*_while.condition);
-				generator->pop("rax");
-				generator->_output << "    test rax, rax\n";
-				generator->_output << "    jz " << endLabel << "\n";
-
-				generator->PushLoop(startLabel, endLabel);
-
-
-				generator->GenerateBlock(_while.block);
-
-
-				generator->PopLoop();
-
-				generator->_output << "    jmp " << startLabel << "\n";
-				generator->_output << "    " << endLabel << ":\n";
-			}
-
-
-			void operator()(const NodeStatementBreak& _break)
-			{
-				if (generator->breakLabels.empty()) {
-					std::cerr << "Error: 'break' outside of loop context\n";
-					exit(EXIT_FAILURE);
-				}
-				// Jump directly to the active loop's exit label
-				generator->_output << "    jmp " << generator->breakLabels.back() << "\n";
-			}
-			void operator()(const NodeStatementContinue&) {
-				if (generator->continueLabels.empty()) {
-					std::cerr << "Error: 'continue' outside of loop context\n";
-					exit(EXIT_FAILURE);
-				}
-				// Jump directly to the active loop's start label
-				generator->_output << "    jmp " << generator->continueLabels.back() << "\n";
-			}
-			void operator()(const NodeStatementExpr& stat)
-			{
-				generator->GenerateExpression(*stat.expr);
-			}
-			void operator()(const NodeStatementReturn& _ret)
-			{
-				generator->GenerateExpression(*_ret.expr);
-				generator->pop("rax"); 
-
-			
-			}
-			void operator()(const NodeStatementAssignment& assign)
-			{
-				bool found = false;
-				for (size_t i = generator->scopes.size(); i-- > 0; )
-				{
-					if (generator->scopes[i].variables.contains(assign.name))
-					{
-						const auto& var = generator->scopes[i].variables.at(assign.name);
-						size_t offset = var.stack_location * 8;
-
-						generator->GenerateExpression(*assign.expr);
-						generator->_output << "    mov QWORD [rbp - "
-							<< std::to_string(offset) << "], rax\n";
-
-						generator->push("rax");
-						found = true;
-						break;
-					}
-				}
-
-				if (!found)
-				{
-					std::cerr << "This variable (" << assign.name << ") is undeclared." << std::endl;
-					exit(EXIT_FAILURE);
-				}
-			}
-		};
-		Visitor visit(this);
-		std::visit(visit, statement.stat);
-	}
-
-
 
 	std::string GenerateProgram()
 	{
@@ -441,199 +22,526 @@ public:
 		_output << "    mov rdi, rax\n";
 		_output << "    mov rax, 60\n";
 		_output << "    syscall\n";
-		GenerateFunction(root);
-		
+	
 
-		return _output.str();
-	}
-
-	void GenerateFunction(NodeProg& prog)
-	{
-
-		// 1. Verify main exists
-		auto main_it = std::find_if(
-			prog.functions.rbegin(),
-			prog.functions.rend(),
-			[](const NodeFunction& func) {
-				return func.name == "main";
-			}
-		);
-
-		if (main_it == prog.functions.rend())
+		for (auto function : program.functions)
 		{
-			std::cerr << "Missing main entry point\n";
-			exit(EXIT_FAILURE);
-		}
-
-		// System V AMD64 ABI parameter registers
-		const std::vector<std::string> PARAM_REGS = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
-
-		for (auto& func : prog.functions)
-		{
-			if (!func.body.has_value()) {
-				continue; // Skip forward declarations
-			}
-
-			_varCount = 0;
-			_stackSize = 0;
-			scopes.clear();
-			scopes.emplace_back(); 
-
-			_output << func.name<< ":\n";
-
-			// Prologue
-			push("rbp");
+			_output << function.name << ":\n";
+			_output << "    push rbp\n";
 			_output << "    mov rbp, rsp\n";
 
-			size_t bytes_needed = func.stack_size;
+			for (Register::Reg reg : function.usedCalleeSaved) {
+				Emit("push " + std::string(Register::RegToString(reg)) + "\n");
+			}
+			size_t pushedBytes = function.usedCalleeSaved.size() * 8;
+			size_t alignedTotal = AlignStackSize(function.stack_size + pushedBytes);
+			size_t subBytes = alignedTotal - pushedBytes;
+
+			if (subBytes > 0) {
+				_output << "    sub rsp, " + std::to_string(subBytes) <<"\n";
+			}
+			for (auto block : function.blocks)
+			{
+				GenerateBlock(block, function);
+			}
 
 			
-			if (bytes_needed > 0) {
-				_output << "    sub rsp, " << std::to_string(bytes_needed) << "\n";
-			}
-
-			for (size_t i = 0; i < func.parameters.size(); ++i)
-			{
-				const auto& param = func.parameters[i];
-				size_t slot = ++_varCount; // Reserve slot 1, 2, ...
-				size_t offset = slot * 8;
-
-				scopes.back().variables.insert({ param.name, Var{.stack_location = slot} });
-
-				_output << "    mov QWORD [rbp - " << std::to_string(offset)
-					<< "], " << PARAM_REGS[i] << "\n";
-			}
-
-			GenerateBlock(func.body.value(), false);
-
-			_output << "    mov rsp, rbp\n";
-			pop("rbp");
-			_output << "    ret\n";
 		}
-	}
-	void GenerateBlock(const NodeBlock& block, bool createScope = true)
-	{
-		if (createScope)
-			EnterScope();
-
-		for (auto& stat : block.statements)
-		{
-			GenerateStatement(*stat);
-		}
-
-		if (createScope)
-			ExitScope();
+		
+		return _output.str();
 	}
 private:
 
-	size_t GetVariableOffset(const std::string& varName)
+	void Emit(const std::string_view& text)
 	{
-		for (size_t i = scopes.size(); i-- > 0; )
+		_output << "    " << text;
+	}
+	void EmitOperand(const MachineOperand& operand)
+	{
+		if (auto physicalReg =
+			std::get_if<PhysicalRegOperand>(&operand.operand))
 		{
-			if (scopes[i].variables.contains(varName))
+			_output << Register::RegToString(physicalReg->reg);
+		}
+		else if (auto immediate =
+			std::get_if<ImmediateOperand>(&operand.operand))
+		{
+			std::visit(
+				[this](auto value)
+				{
+					_output << value;
+				},
+				immediate->value
+			);
+		}
+		else if (auto vreg =
+			std::get_if<VRegOperand>(&operand.operand))
+		{
+			throw std::runtime_error(
+				"Unallocated VReg reached assembly generator"
+			);
+		}
+		else if (auto stackSlot =
+			std::get_if<StackSlotOperand>(&operand.operand))
+		{
+			_output << "[rbp - " << stackSlot->value << "]";
+		}
+		else if (auto mem = std::get_if<MemoryOperand>(&operand.operand))
+		{
+			_output << "[";
+
+			if (mem->address->kind == MachineOperand::Kind::StackSlot)
 			{
-				const auto& var = scopes[i].variables.at(varName);
-				return (scopes[i].stackSizeAtStart + var.stack_location) * 8;
+				auto stack = std::get<StackSlotOperand>(
+					mem->address->operand
+				);
+
+				_output << "rbp - " << stack.value;
 			}
+			else if (mem->address->kind == MachineOperand::Kind::VReg)
+			{
+			}
+			else
+			{
+				EmitOperand(*mem->address);
+			}
+
+			_output << "]";
 		}
-		std::cerr << "Variable (" << varName << ") undeclared." << std::endl;
-		exit(EXIT_FAILURE);
-
-	}
-	void GenerateIf(const NodeStatementIf& node)
-	{
-		GenerateExpression(*node.condition);
-		pop("rax");
-
-		bool hasElse = node.elseBlock.has_value();
-
-		std::string falseLabel = CreateLabel(hasElse ? "else" : "ifend");
-		std::string endLabel;
-
-		if (hasElse)
-			endLabel = CreateLabel("ifend");
-
-		_output << "    test rax, rax\n";
-		_output << "    jz " << falseLabel << "\n";
-
-		GenerateBlock(node.thenBlock);
-
-		if (hasElse)
+		else if (auto label =
+			std::get_if<LabelOperand>(&operand.operand))
 		{
-			_output << "    jmp " << endLabel << "\n";
+			_output << label->label;
 		}
+	}
+	bool IsMemory(const MachineOperand& op)
+	{
+		return op.kind == MachineOperand::Kind::Memory;
+	}
+	void LabelJMP(const std::string& x86_ins, const MachineInstruction& ins)
+	{
+		if (ins.operands.size() < 1) return;
+		_output << "    " << x86_ins << " ";
+		EmitOperand(ins.operands[0]);
+		_output << "\n";
+	}
 
-		_output << "    " << falseLabel << ":\n";
+	void Move(const MachineOperand& dst, const MachineOperand& src, const Memory::OperandSize& moveSize)
+	{
+		_output << "    mov ";
+		_output << FormatOperand(dst);
+		_output << ", ";
+		_output << FormatOperand(src);
+		_output << "\n";
 
-		if (hasElse)
+	}
+	void GenerateAssembly(const MachineInstruction& ins, const MachineFunction& fnContext)
+	{
+		using namespace Memory;
+		switch (ins.opcode)
 		{
-			GenerateBlock(*node.elseBlock);
-			_output << "    " << endLabel << ":\n";
+		case MachineOpcode::MOV:
+		{
+			assert(ins.operands.size() >= 2 && "Instruction is missing operands");
+			const auto& dst = ins.operands[0];
+			const auto& src = ins.operands[1];
+			Move(dst, src, dst.size);
+			break;
 		}
+		case MachineOpcode::MOVSXD:
+		{
+			assert(ins.operands.size() >= 2 && "MOVSXD requires destination and source operands");
+			const auto& dst = ins.operands[0];
+			const auto& src = ins.operands[1];
+
+			_output << "    movsxd ";
+			_output << FormatOperand(dst); 
+			_output << ", ";
+			_output << FormatOperand(src);
+			_output << "\n";
+			break;
+		}
+		case MachineOpcode::MOVZX:
+		{
+			assert(ins.operands.size() >= 2 && "MOVZX requires destination and source operands");
+			const auto& dst = ins.operands[0];
+			const auto& src = ins.operands[1];
+
+			_output << "    movzx ";
+			_output << FormatOperand(dst);
+			_output << ", ";
+			_output << FormatOperand(src);
+			_output << "\n";
+			break;
+		}
+		case MachineOpcode::STORE:
+		{
+			auto& memDst = ins.operands[0];
+			auto& src = ins.operands[1];
+
+			_output << "    mov "
+				<< FormatOperand(memDst) << ", "
+				<< FormatOperand(src) << "\n";
+			break;
+		}
+
+		case MachineOpcode::LEA:
+		{
+			const auto& dst = ins.operands[0];
+			const auto& src = ins.operands[1];
+
+			if (SameOperand(dst, src)) { return; }
+
+			_output << "    lea ";
+			EmitOperand(dst);
+			_output << ", ";
+			EmitOperand(src);
+			_output << "\n";
+
+			break;
+		}
+		case MachineOpcode::ADD:
+		{
+			if (ins.operands.size() < 2)
+				return;
+
+			auto dst = ins.operands[0];
+			auto right = ins.operands[1];
+
+
+			_output << "    add ";
+			_output << FormatOperand(dst);
+			_output << ", ";
+			_output << FormatOperand(right);
+			_output << "\n";
+
+
+			break;
+		}
+		case MachineOpcode::SUB:
+		{
+			
+			if (ins.operands.size() < 2)
+				return;
+
+			auto dst = ins.operands[0];
+			auto subtractor = ins.operands[1];
+
+			_output << "    sub ";
+			_output << FormatOperand(dst);
+			_output << ", ";
+			_output << FormatOperand(subtractor);
+			_output << "\n";
+
+
+			break;
+		}
+		case MachineOpcode::IMUL:
+		{
+			if (ins.operands.size() < 2)
+				return;
+
+			auto dst = ins.operands[0];
+			auto left = ins.operands[1];
+			auto right = ins.operands[2];
+
+			_output << "    imul ";
+			_output << FormatOperand(dst);
+			_output << ", ";
+			_output << FormatOperand(left);
+			_output << "\n";
+
+			break;
+		}
+		case MachineOpcode::IDIV:
+		{
+			assert(ins.operands.size() >= 1 && "IDIV requires a divisor operand");
+			const auto& divisor = ins.operands[0];
+
+			// Handle immediate divisor (idiv cannot take immediates on x86-64)
+			if (divisor.kind == MachineOperand::Kind::Immediate)
+			{
+				_output << "    mov r10, ";
+				EmitOperand(divisor);
+				_output << "\n    idiv r10\n";
+			}
+			else
+			{
+				_output << "    idiv ";
+				EmitOperand(divisor);
+				_output << "\n";
+			}
+			break;
+		}
+		case MachineOpcode::CQO:
+		{
+			_output << "    cqo\n";
+			break;
+		}
+		case MachineOpcode::CMP:
+		{
+			if (ins.operands.size() < 2) return;
+			auto left = ins.operands[0];
+			auto right = ins.operands[1];
+			_output << "    cmp ";
+			_output << FormatOperand(left);
+			_output << ", ";
+
+			_output << FormatOperand(right, left.size);
+			_output << "\n";
+			break;
+		}
+		case MachineOpcode::JMP:
+		{
+			LabelJMP("jmp", ins);
+			break;
+		}
+		case MachineOpcode::JL:
+		{
+			LabelJMP("jl", ins);
+			break;
+		}
+		case MachineOpcode::JG:
+		{
+			LabelJMP("jg", ins);
+			break;
+		}
+		case MachineOpcode::JNE:
+		{
+			LabelJMP("jne", ins);
+			break;
+		}
+		case MachineOpcode::SETL:
+		{
+			assert(ins.operands.size() >= 1 && "Instruction is missing operands");
+			auto dst = ins.operands[0];
+			_output << "    setl " << FormatOperand(dst) << "\n";
+			break;
+		}
+		case MachineOpcode::SETE:
+		{
+			assert(ins.operands.size() >= 1 && "Instruction is missing operands");
+			auto dst = ins.operands[0];
+			_output << "    sete " << FormatOperand(dst) << "\n";
+			break;
+		}
+		case MachineOpcode::SETNE:
+		{
+			assert(ins.operands.size() >= 1 && "Instruction is missing operands");
+			auto dst = ins.operands[0];
+			_output << "    setne " << FormatOperand(dst) << "\n";
+			break;
+		}
+		case MachineOpcode::SETLE:
+		{
+			assert(ins.operands.size() >= 1 && "Instruction is missing operands");
+			auto dst = ins.operands[0];
+			_output << "    setle " << FormatOperand(dst) << "\n";
+			break;
+		}
+		case MachineOpcode::SETG:
+		{
+			assert(ins.operands.size() >= 1 && "Instruction is missing operands");
+			auto dst = ins.operands[0];
+			_output << "    setg " << FormatOperand(dst) << "\n";
+			break;
+		}
+		case MachineOpcode::SETGE:
+		{
+			assert(ins.operands.size() >= 1 && "Instruction is missing operands");
+			auto dst = ins.operands[0];
+			_output << "    setge " << FormatOperand(dst) << "\n";
+			break;
+		}
+		case MachineOpcode::SETB:
+		{
+			assert(ins.operands.size() >= 1 && "Instruction is missing operands");
+			auto dst = ins.operands[0];
+			_output << "    setb " << FormatOperand(dst) << "\n";
+			break;
+		}
+		case MachineOpcode::SETBE:
+		{
+			assert(ins.operands.size() >= 1 && "Instruction is missing operands");
+			auto dst = ins.operands[0];
+			_output << "    setbe " << FormatOperand(dst) << "\n";
+			break;
+		}
+		case MachineOpcode::SETA:
+		{
+			assert(ins.operands.size() >= 1 && "Instruction is missing operands");
+			auto dst = ins.operands[0];
+			_output << "    seta " << FormatOperand(dst) << "\n";
+			break;
+		}
+		case MachineOpcode::SETAE:
+		{
+			assert(ins.operands.size() >= 1 && "Instruction is missing operands");
+			auto dst = ins.operands[0];
+			_output << "    setae " << FormatOperand(dst) << "\n";
+			break;
+		}
+		case MachineOpcode::LABEL:
+		{
+			if (ins.operands.size() < 1) { return; }
+			EmitOperand(ins.operands[0]);
+			_output << ":\n";
+			break;
+		}
+		case MachineOpcode::CALL: {
+			_output << "    call " << ins.label << "\n";
+			break;
+		}
+		case MachineOpcode::RET:
+		{
+			//Epilogue
+			size_t pushedBytes = fnContext.usedCalleeSaved.size() * 8;
+			size_t alignedTotal = AlignStackSize(fnContext.stack_size + pushedBytes);
+			size_t subBytes = alignedTotal - pushedBytes;
+			if (subBytes > 0) {
+				//Emit("add rsp, " + std::to_string(subBytes) + "\n");
+			}
+			for (auto it = fnContext.usedCalleeSaved.rbegin(); it != fnContext.usedCalleeSaved.rend(); ++it) {
+				Emit("pop " + std::string(Register::RegToString(*it)) + "\n");
+			}
+
+			_output << "    mov rsp, rbp\n";
+			_output << "    pop rbp\n";
+			_output << "    ret\n";
+			break;
+		}
+		default:
+			return;
+		}
+
 	}
 
 
-	void EnterScope()
+	void GenerateBlock(const MachineBasicBlock& block, const MachineFunction& fnContext)
 	{
-		scopes.push_back({
-		{},
-		_stackSize
-			});
+		if(!block.label.empty())
+			_output << "    " << block.label << ":\n";
+
+		for (const auto& ins : block.instructions)
+			GenerateAssembly(ins, fnContext);
+	}
+	
+
+
+
+private:
+
+	
+	bool SameOperand(
+		const MachineOperand& a,
+		const MachineOperand& b)
+	{
+		if (a.kind != b.kind)
+			return false;
+
+		if (auto regA = std::get_if<PhysicalRegOperand>(&a.operand))
+		{
+			auto regB = std::get_if<PhysicalRegOperand>(&b.operand);
+
+			return regB && regA->reg == regB->reg;
+		}
+
+		if (auto stackA = std::get_if<StackSlotOperand>(&a.operand))
+		{
+			auto stackB = std::get_if<StackSlotOperand>(&b.operand);
+
+			return stackB && stackA->value == stackB->value;
+		}
+
+		if (auto immA = std::get_if<ImmediateOperand>(&a.operand))
+		{
+			auto immB = std::get_if<ImmediateOperand>(&b.operand);
+
+			return immB && immA->value == immB->value;
+		}
+
+		return false;
 	}
 
-	void ExitScope()
-	{
-		scopes.pop_back();
-	}
-	void push(const std::string& reg)
-	{
-		_output << "    push " << reg << "\n";
-		_stackSize++;
+	
+	
+
+	// Formats a MachineOperand to assembly string syntax
+	std::string FormatOperand(const MachineOperand& op, Memory::OperandSize overrideSize) {
+		// If overrideSize is provided (not default/unknown), use it; otherwise use operand's inherent size
+
+		using namespace Memory;
+		OperandSize effectiveSize = (overrideSize != static_cast<OperandSize>(0)) ? overrideSize : op.size;
+
+
+		struct Visitor {
+			OperandSize size;
+			X86Generator* gen;
+			std::string operator()(const VRegOperand& vreg) {
+				return "v" + std::to_string(vreg.vreg.id);
+			}
+
+			std::string operator()(const PhysicalRegOperand& phys) {
+				return std::string(GetPhysicalRegName(phys.reg, size));
+			}
+
+			std::string operator()(const ImmediateOperand& imm) {
+				// Format immediate values
+				if (std::holds_alternative<int>(imm.value)) {
+					return std::to_string(std::get<int>(imm.value));
+				}
+				else if (std::holds_alternative<size_t>(imm.value)) {
+					return std::to_string(std::get<size_t>(imm.value));
+				}
+				return "0";
+			}
+
+			std::string operator()(const StackSlotOperand& slot) {
+				// Stack slot offset relative to RBP: [rbp - slot.value]
+				std::string sizeSpecifier = GetSizeSpecifier(size);
+
+				return sizeSpecifier + " [rbp - " + std::to_string(slot.value) + "]";
+			}
+
+			std::string operator()(const StackObjectOperand& obj) {
+				// Stack object pointer offset relative to RBP
+				return "[rbp - " + std::to_string(obj.object.size) + "]";
+			}
+
+			std::string operator()(const LabelOperand& lbl) {
+				return lbl.label;
+			}
+
+			std::string operator()(const MemoryOperand& mem) {
+				// Memory address registers are always 64-bit pointers (Qword)
+				std::string innerAddr = gen->FormatOperand(*mem.address, OperandSize::Qword);
+				std::string sizeSpecifier = GetSizeSpecifier(size);
+
+				// Format nested expression: [rax]
+				return sizeSpecifier + " [" + innerAddr + "]";
+			}
+		};
+
+		return std::visit(Visitor{ effectiveSize, this }, op.operand);
 	}
 
-	void pop(const std::string& reg)
-	{
-		_output << "    pop " << reg << "\n";
+	// Overload taking only 1 parameter
+	std::string FormatOperand(const MachineOperand& op) {
+		return FormatOperand(op, op.size);
 	}
-
-	void PushLoop(const std::string& start, const std::string& end) {
-		continueLabels.push_back(start);
-		breakLabels.push_back(end);
+	size_t AlignStackSize(size_t unalignedSize, size_t alignment = 16) {
+		return (unalignedSize + alignment - 1) & ~(alignment - 1);
 	}
-
-	void PopLoop() {
-		continueLabels.pop_back();
-		breakLabels.pop_back();
-	}
-	std::string CreateLabel(const std::string& label)
-	{
-		return label + std::to_string(_labelCount++);
-	}
-	struct Var
-	{
-		size_t stack_location;
-	};
-	struct Scope
-	{
-		std::unordered_map<std::string, Var> variables;
-		size_t stackSizeAtStart;
-	};
-
 	NodeProg root;
+
 	std::stringstream _output;
-
-	std::vector<Scope> scopes;
-
-	size_t _labelCount = 0;
-
 	size_t _stackSize = 0;
-
+	size_t _varCount = 0;
+	MachineProgram program;
+	Register::Reg SCRATCH = Register::Reg::R11;
 	int _currentScope = 0;
 
-	size_t _varCount = 0;
 
 
-	const std::vector<std::string> PARAM_REGS = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
-	std::vector<std::string> breakLabels; 
-	std::vector<std::string> continueLabels;
+
 };

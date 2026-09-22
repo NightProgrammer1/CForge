@@ -9,226 +9,183 @@ public:
 	{
 
 	}
-    NodeExpr* ParseFactor()
+   
+    std::optional<NodeProg> ParseProgram()
+    {
+        NodeProg prog;
+        while (PeekToken().has_value()) {
+            if (IsFunctionDeclaration()) {
+                prog.functions.push_back(ParseFunctions());
+            }
+            else {
+                std::cerr << "Syntax Error: Top-level code must be a function declaration or definition." << std::endl;
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        return prog;
+
+
+    }
+
+
+private:
+    NodeExpr* ParsePrimary()
     {
         auto p = PeekToken();
 
-        
-
-        if (p && p->type == TokenType::int_literal)
-        {
-            return _allocator->new_object<NodeExpr>(NodeExprIntLit{
-                    std::stoi(GetToken().value)
-                });
-           
+        if (p && p->type == TokenType::int_literal) {
+            return _allocator->new_object<NodeExpr>(NodeExprIntLit{ std::stoi(GetToken().value) }, Type::MakeInt());
         }
-        if (Match(TokenType::false_literal) )
-        {
-            return  _allocator->new_object<NodeExpr>(
-                NodeExprBoolLit{
-                    .value = false
-                }
-                );
+        if (Match(TokenType::false_literal)) {
+            return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ .value = false }, Type::MakeBool());
         }
-        else if (Match(TokenType::true_literal))
-        {
-            return  _allocator->new_object<NodeExpr>(
-                NodeExprBoolLit{
-                    .value = true
-                }
-                );
+        if (Match(TokenType::true_literal)) {
+            return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ .value = true }, Type::MakeBool());
         }
-
-        if (Match(TokenType::_not))
-        {
+        if (p && p->type == TokenType::_identifier) {
             std::string identifier = GetToken().value;
-
             auto identExpr = _allocator->new_object<NodeExpr>();
-            identExpr->var = NodeExprIdent{
-                identifier
-            };
-
-            auto unary = _allocator->new_object<NodeExpr>();
-            unary->var = NodeExprUnary{
-                Token{TokenType::_not},
-                std::move(identExpr)
-            };
-
-            return unary;
-        }
-        if (p && p->type == TokenType::_identifier)
-        {
-            std::string identifier = GetToken().value;
-
-            auto identExpr = _allocator->new_object<NodeExpr>();
-            identExpr->var = NodeExprIdent{
-                identifier
-            };
-
-            //Expr Call
-            if (Match(TokenType::open_paren)) {
-
-                auto expr = _allocator->new_object<NodeExpr>();
-
-                NodeExprCall funcCall;
-                funcCall.name = identifier;
-
-                if (Match(TokenType::close_paren))
-                {
-                    expr->var = std::move(funcCall);
-                    return expr;
-                }
-
-            
-                while (true) {
-                    if (auto node_expr = ParseBoolean()) {
-                        funcCall.args.push_back(std::move(node_expr));
-                    }
-                    else {
-                        std::cerr << "Invalid expression in function call '"
-                            << identifier << "'" << std::endl;
-                        exit(EXIT_FAILURE);
-                    }
-
-                    if (Match(TokenType::comma)) {
-                        continue;
-                    }
-
-                    break;
-                }
-                expr->var = std::move(funcCall);
-
-                Consume(TokenType::close_paren);
-                return expr;
-            }
-
-            if (Match(TokenType::increment))
-            {
-                auto unary = _allocator->new_object<NodeExpr>();
-                unary->var = NodeExprUnary{
-                    Token{TokenType::post_increment},
-                    std::move(identExpr)
-                };
-
-                return unary;
-            }
-            if (Match(TokenType::decrease))
-            {
-                auto unary = _allocator->new_object<NodeExpr>();
-                unary->var = NodeExprUnary{
-                    Token{TokenType::post_decrease},
-                    std::move(identExpr)
-                };
-
-                return unary;
-            }
-
-            if (TryMatch(TokenType::plus_equal))
-            {
-                NodeExprAssignment assign;
-
-
-                std::string varName = identifier;
-
-                auto p = PeekToken();
-
-
-                while (PeekToken() &&
-                    (PeekToken()->type == TokenType::plus_equal))
-                {
-                    Token op = GetToken();
-                    switch (op.type)
-                    {
-                    case TokenType::plus_equal:op.type = TokenType::plus; break;
-                    default:
-                        break;
-                    }
-                    auto right = ParseLogicalOr();
-                    auto binary = _allocator->new_object<NodeExpr>();
-
-                    binary->var = NodeExprBinary{
-                       op,
-                       std::move(identExpr),
-                       std::move(right)
-                    };
-
-                    identExpr = std::move(binary);
-                    p = PeekToken();
-                }
-
-                assign.expr = identExpr;
-                assign.name = varName;
-
-                TryConsume(TokenType::semicolon);
-
-                return _allocator->new_object<NodeExpr>(assign);
-            }
-
-
-
-
-
-
+            identExpr->var = NodeExprIdent{ identifier };
             return identExpr;
-
-
-
-
-
         }
-
-        if (Match(TokenType::increment))
-        {
-            std::string identifier = GetToken().value;
-
-            auto identExpr = _allocator->new_object<NodeExpr>();
-            identExpr->var = NodeExprIdent{
-                identifier
-            };
-
-            auto unary = _allocator->new_object<NodeExpr>();
-            unary->var = NodeExprUnary{
-                Token{TokenType::pre_increment},
-                std::move(identExpr)
-            };
-
-            return unary;
-        }
-
-        if (Match(TokenType::decrease))
-        {
-            std::string identifier = GetToken().value;
-
-            auto identExpr = _allocator->new_object<NodeExpr>();
-            identExpr->var = NodeExprIdent{
-                identifier
-            };
-
-            auto unary = _allocator->new_object<NodeExpr>();
-            unary->var = NodeExprUnary{
-                Token{TokenType::pre_decrease},
-                std::move(identExpr)
-            };
-
-            return unary;
-        }
-        if (Match(TokenType::open_paren))
-        {
+        if (Match(TokenType::open_paren)) {
             auto expr = ParseBoolean();
             Consume(TokenType::close_paren);
             return expr;
         }
 
-
-        return {};
+        return nullptr;
     }
+    NodeExpr* ParsePostfix()
+    {
+        // 1. First parse the base primary expression
+        auto expr = ParsePrimary();
+        if (!expr) return nullptr;
+
+        // 2. Loop continuously to consume any attached postfix operators
+        while (true)
+        {
+            // Function Call: expr(...)
+            if (Match(TokenType::open_paren))
+            {
+                NodeExprCall funcCall;
+                // Extract the function name if expr is an identifier
+                if (auto* ident = std::get_if<NodeExprIdent>(&expr->var)) {
+                    funcCall.name = ident->name;
+                }
+
+                if (!Match(TokenType::close_paren))
+                {
+                    while (true)
+                    {
+                        if (auto arg = ParseBoolean()) {
+                            funcCall.args.push_back(std::move(arg));
+                        }
+                        else {
+                            std::cerr << "Invalid expression in function call\n";
+                            exit(EXIT_FAILURE);
+                        }
+
+                        if (Match(TokenType::comma)) continue;
+                        break;
+                    }
+                    Consume(TokenType::close_paren);
+                }
+
+                auto callExpr = _allocator->new_object<NodeExpr>();
+                callExpr->var = std::move(funcCall);
+                expr = callExpr; // Update expr to allow chaining! (e.g. func()++)
+            }
+            // Postfix Increment: expr++
+            else if (Match(TokenType::increment))
+            {
+                auto unary = _allocator->new_object<NodeExpr>();
+                unary->var = NodeExprUnary{ TokenType::post_increment, expr };
+                expr = unary;
+            }
+            // Postfix Decrement: expr--
+            else if (Match(TokenType::decrease))
+            {
+                auto unary = _allocator->new_object<NodeExpr>();
+                unary->var = NodeExprUnary{ TokenType::post_decrement, expr };
+                expr = unary;
+            }
+            // Array Subscript: expr[i]
+            else if (TryMatch(TokenType::open_bracket))
+            {
+                NodeExprArrayAccess access{ expr };
+                while (Match(TokenType::open_bracket)) {
+                    while (PeekToken() && PeekToken()->type != TokenType::close_bracket)
+                    {
+                        if (auto indexExpr = ParseLogicalOr()) {
+                            access.indices.push_back(indexExpr);
+                        }
+                        else {
+                            std::cerr << "Invalid array access expression\n";
+                            exit(EXIT_FAILURE);
+                        }
+                    }
+                    Consume(TokenType::close_bracket);
+                }
+
+                auto accessExpr = _allocator->new_object<NodeExpr>();
+                accessExpr->var = std::move(access);
+                expr = accessExpr;
+            }
+            else
+            {
+                break; // No more postfix operators
+            }
+        }
+
+        return expr;
+    }
+    NodeExpr* ParseFactor()
+    {
+        // Prefix Unary Operators
+        if (Match(TokenType::_not)) {
+            auto sub = ParseFactor();
+            auto unary = _allocator->new_object<NodeExpr>();
+            unary->var = NodeExprUnary{ TokenType::_not, sub };
+            return unary;
+        }
+        if (Match(TokenType::increment)) { // Prefix ++x
+            auto sub = ParseFactor();
+            auto unary = _allocator->new_object<NodeExpr>();
+            unary->var = NodeExprUnary{ TokenType::pre_increment, sub };
+            return unary;
+        }
+        if (Match(TokenType::decrease)) { // Prefix --x
+            auto sub = ParseFactor();
+            auto unary = _allocator->new_object<NodeExpr>();
+            unary->var = NodeExprUnary{ TokenType::pre_decrement, sub };
+            return unary;
+        }
+        if (Match(TokenType::ampersand)) { // &x
+            auto sub = ParseFactor();
+            auto unary = _allocator->new_object<NodeExpr>();
+            unary->var = NodeExprUnary{ TokenType::ampersand, sub };
+            return unary;
+        }
+        if (Match(TokenType::star)) { // *x
+            auto sub = ParseFactor();
+            auto unary = _allocator->new_object<NodeExpr>();
+            unary->var = NodeExprUnary{ TokenType::star, sub };
+            return unary;
+        }
+
+        // Fallthrough to Postfix and Primary expressions
+        return ParsePostfix();
+    }
+    
     NodeExpr* ParseTerm()
     {
-		//Handle the case where we have a factor, and then we have a binary operator (* or /) that combines two factors.
+        //Handle the case where we have a factor, and then we have a binary operator (* or /) that combines two factors.
         auto left = ParseFactor();
 
         auto p = PeekToken();
-        while (p && (p->type == TokenType::mult || p->type == TokenType::div))
+        while (p && (p->type == TokenType::star || p->type == TokenType::div))
         {
             Token op = GetToken();
             auto right = ParseFactor();
@@ -236,7 +193,7 @@ public:
             auto binary = _allocator->new_object<NodeExpr>();
 
             binary->var = NodeExprBinary{
-                op,
+                op.type,
                 std::move(left),
                 std::move(right)
             };
@@ -252,7 +209,7 @@ public:
         auto left = ParseTerm();
 
         auto p = PeekToken();
-        while (p && (p->type == TokenType::plus || p->type == TokenType::sub)) 
+        while (p && (p->type == TokenType::plus || p->type == TokenType::sub))
         {
             Token op = GetToken();
             auto right = ParseTerm();
@@ -260,7 +217,7 @@ public:
             auto binary = _allocator->new_object<NodeExpr>();
 
             binary->var = NodeExprBinary{
-                op,
+                op.type,
                 std::move(left),
                 std::move(right)
             };
@@ -268,25 +225,24 @@ public:
             p = PeekToken();
         }
 
-        
+
 
         return left;
     }
     NodeExpr* ParseComparison()
     {
-		//Handle the case where we have a comparison expression, and then we have a comparison operator (<, >, ==) that combines two expressions.
         auto left = ParseExpr();
         auto p = PeekToken();
         int a;
 
-       
+
         while (PeekToken() &&
-            (   PeekToken()->type == TokenType::less ||
+            (PeekToken()->type == TokenType::less ||
                 PeekToken()->type == TokenType::greater ||
                 PeekToken()->type == TokenType::equal_equal ||
-                PeekToken()->type == TokenType::less_equal     ||
-                PeekToken()->type == TokenType::greater_equal          ||
-                PeekToken()->type == TokenType::not_equal        ))
+                PeekToken()->type == TokenType::less_equal ||
+                PeekToken()->type == TokenType::greater_equal ||
+                PeekToken()->type == TokenType::not_equal))
         {
             Token op = GetToken();
             auto right = ParseExpr();
@@ -366,7 +322,7 @@ public:
         {
             Token op = GetToken();
             auto right = ParseLogicalAnd();
-            auto binary = _allocator->new_object<NodeExpr>(); 
+            auto binary = _allocator->new_object<NodeExpr>();
 
             binary->var = NodeExprCompare{
                op,
@@ -395,13 +351,12 @@ public:
             auto right = ParseLogicalOr();
             auto binary = _allocator->new_object<NodeExpr>();
 
-            binary->var = NodeExprCompare{
-               op,
-               std::move(left),
-               std::move(right)
-            };
+            binary->var = NodeExprBinary{ TokenType::plus, left, right };
+            
+            auto assign = _allocator->new_object<NodeExpr>();
+            assign->var = NodeExprAssignment{ left, binary };
 
-            left = std::move(binary);
+            left = std::move(assign);
             p = PeekToken();
         }
 
@@ -429,286 +384,178 @@ public:
 
         return block;
     }
+
+
     NodeStatement* ParseStat()
     {
+        // Control Flow & Keywords
         if (Match(TokenType::exit))
         {
             NodeStatementExit exit_node;
-
-            if (auto node_expr = ParseBoolean())
-            {
+            if (auto node_expr = ParseLogicalOr()) {
                 exit_node.expr = std::move(node_expr);
             }
-            else
-            {
-                std::cerr << "Invalid (exit) expression" << std::endl;
+            else {
+                std::cerr << "Invalid (exit) expression\n";
                 exit(EXIT_FAILURE);
             }
             Consume(TokenType::semicolon);
-
-            return _allocator->new_object<NodeStatement>( exit_node );
+            return _allocator->new_object<NodeStatement>(exit_node);
         }
-        else if (Match(TokenType::_int))
-        {
-            bool has_identifier = PeekToken().has_value() && (PeekToken().value().type == TokenType::_identifier);
-            bool has_equal = PeekToken(1).has_value() && (PeekToken(1).value().type == TokenType::equal);
-            bool has_semicolon = PeekToken(1).has_value() && (PeekToken(1).value().type == TokenType::semicolon);
+        if (Match(TokenType::_if))       return ParseIf();
+        if (Match(TokenType::_while))    return ParseWhile();
+        if (Match(TokenType::_for))      return ParseFor();
+        if (Match(TokenType::open_brace)) return _allocator->new_object<NodeStatement>(ParseBlock());
 
-            auto statement_int = NodeStatementVar{ .name = GetToken().value };
-
-            if (has_identifier && has_equal)
-            {
-
-                Consume(TokenType::equal);
-                
-
-                if (auto expr = ParseLogicalOr())
-                {
-                    statement_int.expr = expr;
-                }
-                else
-                {
-                    std::cerr << "Invalid int variable" << std::endl;
-                    exit(EXIT_FAILURE);
-                }
-                Consume(TokenType::semicolon);
-                
-                return _allocator->new_object<NodeStatement>(statement_int);
-            }
-
-            else if (has_identifier && has_semicolon) {
-                Consume(TokenType::semicolon);
-                auto expr = _allocator->new_object<NodeExpr>(NodeExprIntLit{});
-                statement_int.expr = expr;
-                return _allocator->new_object<NodeStatement>(statement_int);
-            }
-
-        }
-        else if (Match(TokenType::_bool))
-        {
-            if (!TryConsume(TokenType::_identifier))
-            {
-                std::cerr << "Missing variable name after bool" << std::endl;
-            }
-
-            auto statement_var = NodeStatementVar{ .name = GetToken().value};
-            statement_var.type = Type::Bool;
-
-            Consume(TokenType::equal);
-
-
-            if (auto expr = ParseBoolean())
-            {
-                statement_var.expr = std::move(expr);
-            }
-            else
-            {
-                std::cerr << "Invalid bolean expression" << std::endl;
-                exit(EXIT_FAILURE);
-            }
-            Consume(TokenType::semicolon);
-            return _allocator->new_object<NodeStatement>(statement_var);
-
-
-        }
-        else if (Match(TokenType::_if))
-        {
-            return ParseIf();
-        }
-		else if (Match(TokenType::_while))
-		{
-			return ParseWhile();
-		}
-        else if (Match(TokenType::_for))
-        {
-            return ParseFor();
-        }
-        else if (Match(TokenType::open_brace))
-        {
-
-            auto block = ParseBlock();
-            return _allocator->new_object<NodeStatement>(block);
-        }
-        else if (Match(TokenType::_return))
+        if (Match(TokenType::_return))
         {
             NodeStatementReturn ret;
+            if (Match(TokenType::semicolon)) {
+                ret.expr = _allocator->new_object<NodeExpr>(NodeExprVoid{});
+                return _allocator->new_object<NodeStatement>(ret);
+            }
 
-            if (auto expr = ParseBoolean())
-            {
+            if (auto expr = ParseLogicalOr()) {
                 ret.expr = std::move(expr);
-                
             }
-            else if (Match(TokenType::semicolon))
-            {
-                auto e = _allocator->new_object<NodeExpr>(NodeExprVoid{});
-                ret.expr = std::move(e);
-               return _allocator->new_object<NodeStatement>(ret);
-            }
-            else
-            {
+            else {
                 std::cerr << "Invalid return expression\n";
                 exit(EXIT_FAILURE);
             }
-
             Consume(TokenType::semicolon);
-
             return _allocator->new_object<NodeStatement>(ret);
-
-
         }
-        else if (Match(TokenType::_break)) {
+
+        if (Match(TokenType::_break)) {
             Consume(TokenType::semicolon);
             return _allocator->new_object<NodeStatement>(NodeStatementBreak{});
         }
-        else if (Match(TokenType::_continue)) {
+        if (Match(TokenType::_continue)) {
             Consume(TokenType::semicolon);
             return _allocator->new_object<NodeStatement>(NodeStatementContinue{});
         }
-        else if (TryMatch(TokenType::_identifier))
+
+        //Variable Declarations (Types: int, int*, bool, int[2])
+        if (IsTypeSpecifier(PeekToken()))
         {
-            bool has_equal = PeekToken(1).has_value() && (PeekToken(1).value().type == TokenType::equal);
-            bool has_plus_equal = PeekToken(1).has_value() && (PeekToken(1).value().type == TokenType::plus_equal);
-            if (has_equal)
-            {
-                NodeStatementAssignment assign;
-                assign.name = GetToken().value;
-
-                Consume(TokenType::equal);
-                if (auto expr = ParseLogicalOr())
-                {
-                    assign.expr = expr;
-                }
-                else
-                {
-                    std::cerr << "Invalid assignement expression" << std::endl;
-                    exit(EXIT_FAILURE);
-                }
-
-                Consume(TokenType::semicolon);
-                return _allocator->new_object<NodeStatement>(assign);
+            if (auto decl = ParseVariableDeclaration()) {
+                return *decl;
             }
-            else if (has_plus_equal)
-            {
-                NodeStatementAssignment assign;
-
-
-                std::string varName = GetToken().value;
-                auto left = _allocator->new_object<NodeExpr>(NodeExprIdent{varName});
-                auto p = PeekToken();
-
-
-                while (PeekToken() &&
-                    (PeekToken()->type == TokenType::plus_equal))
-                {
-                    Token op = GetToken();
-                    switch (op.type)
-                    {
-                    case TokenType::plus_equal:op.type = TokenType::plus; break;
-                    default:
-                        break;
-                    }
-                    auto right = ParseLogicalOr();
-                    auto binary = _allocator->new_object<NodeExpr>();
-
-                    binary->var = NodeExprBinary{
-                       op,
-                       std::move(left),
-                       std::move(right)
-                    };
-
-                    left = std::move(binary);
-                    p = PeekToken();
-                }
-
-                assign.expr = left;
-                assign.name = varName;
-
-                TryConsume(TokenType::semicolon);
-
-                return _allocator->new_object<NodeStatement>(assign);
-            }
-
+            std::cerr << "Invalid variable declaration\n";
+            exit(EXIT_FAILURE);
         }
-        
-        if (auto expr = ParseBoolean())
-        {
-            Consume(TokenType::semicolon);
-            NodeStatementExpr p;
-            p.expr = std::move(expr);
-            return _allocator->new_object<NodeStatement>(p);
+
+        // Assignments & Expression Statements
+        if (auto stmt = ParseAssignmentOrExprStatement()) {
+            return stmt;
         }
-        return {};
+
+        return nullptr;
     }
 
 
-    std::vector<Parameter> ParseParameter()
-    {
-        Consume(TokenType::open_paren);
-        
-        auto p = PeekToken();
-        std::vector<Parameter> parameterList;
-
-        while (p && p.value().type != TokenType::close_paren)
-        {
-            if (Match(TokenType::_int))
-            {
-                Parameter par = { Type::Int, GetToken().value };
-                parameterList.push_back(par);
-            }
-            else if (Match(TokenType::_bool))
-            {
-                Parameter par = { Type::Bool, GetToken().value };
-                parameterList.push_back(par);
-            }
-
-            if (!TryMatch(TokenType::comma))
-            {
-                break;
-
-            }
-            Consume(TokenType::comma);
-
-            p = PeekToken();
-        }
-
-        Consume(TokenType::close_paren);
-        return parameterList;
-    }
-
-    Type ParseType(const Token& token)
+    std::shared_ptr<Type> ParseType(const Token& token)
     {
 
         switch (token.type)
         {
         case TokenType::_int:
-            return Type::Int;
+            return std::make_shared<Type>( Type::Kind::Int );
             break;
         case TokenType::_bool:
-            return Type::Bool;
+            return std::make_shared<Type>(Type::Kind::Bool );
             break;
         case TokenType::_void:
-            return Type::Void;
+            return std::make_shared<Type>(Type::Kind::Void );
             break;
         default:
             break;
         }
     }
+    bool IsTypeSpecifier(std::optional<Token> tok) {
+        if (!tok.has_value()) return false;
+        return tok->type == TokenType::_int ||
+            tok->type == TokenType::_bool;
+        // tok->type == TokenType::_float;
+    }
+    NodeStatement* ParseAssignmentOrExprStatement()
+    {
+        auto lhs = ParseFactor();
+        if (!lhs) return nullptr;
+
+        if (Match(TokenType::equal))
+        {
+            NodeStatementAssignment assign;
+            assign.target = lhs;
+
+            if (Match(TokenType::open_brace)) {
+              //  assign.expr = ParseInitializerList();
+            }
+            else {
+                assign.expr = ParseLogicalOr();
+            }
+
+            Consume(TokenType::semicolon);
+            return _allocator->new_object<NodeStatement>(assign);
+        }
+
+        if (Match(TokenType::plus_equal))
+        {
+            auto rhs = ParseLogicalOr();
+            Consume(TokenType::semicolon);
+
+            auto binary = _allocator->new_object<NodeExpr>();
+            binary->var = NodeExprBinary{
+               TokenType::plus,
+                lhs,
+                rhs
+            };
+
+            NodeStatementAssignment assign;
+            assign.target = lhs;
+            assign.expr = binary;
+            return _allocator->new_object<NodeStatement>(assign);
+        }
+
+        Consume(TokenType::semicolon);
+        NodeStatementExpr expr_stmt;
+        expr_stmt.expr = lhs;
+        return _allocator->new_object<NodeStatement>(expr_stmt);
+    }
     NodeFunction ParseFunctions()
     {
         NodeFunction func;
+        auto type = ParseType();
+        func.retType = type->type;
 
-        func.retType = ParseType(GetToken());
+        func.name = type->declarator.name;
 
-        func.name = Consume(TokenType::_identifier).value().value;
+        if (Match(TokenType::open_paren))
+        {
+			if (auto param = ParseParameter())
+			{
+				func.parameters.push_back(*param);
+			}
+			while (Match(TokenType::comma))
+			{
+				if (auto param = ParseParameter())
+				{
+					func.parameters.push_back(*param);
+				}
+			}
 
-        func.parameters = ParseParameter();
 
+			auto currentToken = PeekToken();
+            Consume(TokenType::close_paren);
+        }
+
+
+		auto p = PeekToken();
         if (Match(TokenType::semicolon)) { //forward declaration
 
-            func.body = std::nullopt; 
+            func.body = std::nullopt;
         }
-        else if (PeekToken().value().type == TokenType::open_brace) {
-            Consume(TokenType::open_brace);
+        else if (Match(TokenType::open_brace)) {
 
             auto block = ParseBlock();
 
@@ -718,33 +565,16 @@ public:
             std::cerr << "Expected ';' or '{' after function signature." << std::endl;
             exit(EXIT_FAILURE);
         }
-        
+
         return func;
     }
-    std::optional<NodeProg> ParseProgram()
-    {
-        NodeProg prog;
-        while (PeekToken().has_value()) {
-            if (IsFunctionDeclaration()) {
-                prog.functions.push_back(ParseFunctions());
-            }
-            else {
-                std::cerr << "Syntax Error: Top-level code must be a function declaration or definition." << std::endl;
-                exit(EXIT_FAILURE);
-            }
-        }
 
-        return prog;
-       
 
-    }
-    
-   
     NodeStatement* ParseIf()
     {
 
         NodeStatementIf _if;
-        if (auto node_expr = ParseBoolean())
+        if (auto node_expr = ParseLogicalOr())
         {
             _if.condition = std::move(node_expr);
         }
@@ -770,7 +600,7 @@ public:
                 _if.elseBlock = ParseBlock();
             }
         }
-      
+
 
 
 
@@ -779,25 +609,25 @@ public:
 
         return _allocator->new_object<NodeStatement>(_if);
     }
-	NodeStatement* ParseWhile()
-	{
-		NodeStatementWhile _while;
-		if (auto node_expr = ParseBoolean())
-		{
-			_while.condition = std::move(node_expr);
-		}
-		else
-		{
-			std::cerr << "Invalid (while) expression" << std::endl;
-			exit(EXIT_FAILURE);
-		}
-		Consume(TokenType::open_brace);
-		_while.block = std::move(ParseBlock());
+    NodeStatement* ParseWhile()
+    {
+        NodeStatementWhile _while;
+        if (auto node_expr = ParseBoolean())
+        {
+            _while.condition = std::move(node_expr);
+        }
+        else
+        {
+            std::cerr << "Invalid (while) expression" << std::endl;
+            exit(EXIT_FAILURE);
+        }
+        Consume(TokenType::open_brace);
+        _while.block = std::move(ParseBlock());
 
 
         return _allocator->new_object<NodeStatement>(_while);
-		
-	}
+
+    }
     NodeStatement* ParseFor()
     {
 
@@ -840,7 +670,7 @@ public:
         Consume(TokenType::semicolon);
         //update
         if (PeekToken() && PeekToken()->type != TokenType::close_paren) {
-            if (auto expr = ParseLogicalOr()) {
+            if (auto expr = ParseCompoundAssign()) {
                 updateExpr = _allocator->new_object<NodeStatement>(NodeStatementExpr{ expr });
             }
         }
@@ -859,26 +689,156 @@ public:
 
         return _allocator->new_object<NodeStatement>(block);
     }
+    std::optional<NodeStatement*> ParseVariableDeclaration()
+    {
+        auto parsed = ParseType();
+        if (!parsed)
+            return std::nullopt;
 
-private:
+        auto& type = parsed->type;
+        auto& declarator = parsed->declarator;
 
-    bool IsFunctionDeclaration() {
-        if (PeekToken()->type == TokenType::_int || PeekToken()->type == TokenType::_bool || PeekToken()->type == TokenType::_void) {
-            if (PeekToken(1).has_value() && PeekToken(1)->type == TokenType::_identifier) {
-                if (PeekToken(2).has_value() && PeekToken(2)->type == TokenType::open_paren) {
-                    return true;
+        const std::string& name = declarator.name;
+
+        NodeExpr* initializer = nullptr;
+        NodeExpr* expression = nullptr;
+
+        if (Match(TokenType::equal))
+        {
+            if (TypeInfo::IsArray(type))
+                initializer = ParseInitializerList();
+            else
+                expression = ParseLogicalOr();
+        }
+
+        Consume(TokenType::semicolon);
+
+        if (TypeInfo::IsArray(type))
+        {
+            NodeStatementArray arr;
+
+            arr.name = name;
+            arr.element_type = type;
+            arr.initializer = initializer;
+
+            return _allocator->new_object<NodeStatement>(arr);
+        }
+        else
+        {
+            NodeStatementVar var;
+
+            var.name = name;
+            var.element_type = type;
+            var.initializer = expression;
+
+            return _allocator->new_object<NodeStatement>(var);
+        }
+    }
+    NodeExpr* ParseInitializerList()
+    {
+        NodeExprInitList list;
+        while (Match(TokenType::open_brace)) {
+            while (PeekToken() && PeekToken()->type != TokenType::close_brace)
+            {
+
+                if (auto expr = ParseLogicalOr())
+                {
+                    list.values.push_back(expr);
+                }
+                else if (auto l = ParseInitializerList())
+                {
+                    list.values.push_back(_allocator->new_object<NodeExpr>(*l));
+                }
+                else
+                {
+                    std::cerr << "Parser Error: Invalid expression in initializer list\n";
+                    exit(EXIT_FAILURE);
+                }
+
+                if (!TryConsume(TokenType::comma))
+                {
+                    break;
+
                 }
             }
+
+            Consume(TokenType::close_brace);
         }
-        return false;
+        return _allocator->new_object<NodeExpr>(list);
+
+    }
+    std::optional<Parameter> ParseParameter()
+    {
+
+        auto type_info = ParseType();
+        Parameter parameter;
+
+        if (!type_info) {
+            return std::nullopt;
+        }
+        auto identifier = type_info->declarator.name;
+
+        parameter = Parameter(identifier, type_info->type);
+
+        return { parameter };
+    }
+
+    bool IsFunctionDeclaration()
+    {
+        size_t offset = 0;
+
+        // Skip leading storage/type qualifiers (const, static, volatile)
+        while (auto token = PeekToken(offset)) {
+            if (token->type == TokenType::_const ||
+                token->type == TokenType::_static ||
+                token->type == TokenType::_volatile) {
+                offset++;
+            }
+            else {
+                break;
+            }
+        }
+
+        // Expect a valid base type (primitive, void, or custom struct/typedef)
+        auto baseType = PeekToken(offset);
+        if (!baseType) return false;
+
+        bool isValidType = (baseType->type == TokenType::_int ||
+            baseType->type == TokenType::_bool ||
+            baseType->type == TokenType::_void ||
+            baseType->type == TokenType::_identifier); // For struct/typedef names
+
+        if (!isValidType) return false;
+        offset++;
+
+        // Skip pointer asterisks (int*, int**, const char* const*)
+        while (auto token = PeekToken(offset)) {
+            if (token->type == TokenType::star || token->type == TokenType::_const) {
+                offset++;
+            }
+            else {
+                break;
+            }
+        }
+
+        // Expect the function identifier
+        auto funcName = PeekToken(offset);
+        if (!funcName || funcName->type != TokenType::_identifier) {
+            return false;
+        }
+        offset++;
+
+        // Expect the open parenthesis '('
+        auto openParen = PeekToken(offset);
+        return openParen && openParen->type == TokenType::open_paren;
     }
     std::optional<Token> TryConsume(TokenType type)
     {
         if (!PeekToken() || PeekToken()->type != type) {
             return {};
         }
-        Consume(type);
-        return  _tokens.at(_currentIndex);
+
+       return Consume(type);
     }
 
     void Advance() { _currentIndex++; }
@@ -950,7 +910,7 @@ private:
         case TokenType::sub:
             error("-");
             break;
-        case TokenType::mult:
+        case TokenType::star:
             break;
         case TokenType::div:
             break;
@@ -971,6 +931,8 @@ private:
         case TokenType::_return:
             error("return");
             break;
+        case TokenType::post_increment:
+            error("++");
         default:
             break;
         }
@@ -981,10 +943,128 @@ private:
     {
         return  _tokens.at(_currentIndex++);
     }
+    void WrapModifier(std::unique_ptr<DeclaratorModifier>& existing_root,
+        std::unique_ptr<DeclaratorModifier> new_outer)
+    {
+        new_outer->child = std::move(existing_root);
+        existing_root = std::move(new_outer);
+    }
+    std::optional<ParsedType> ParseType()
+    {
+        Type base;
+
+        if (Match(TokenType::_int))
+        {
+            base.kind = Type::Kind::Int;
+        }
+        else if (Match(TokenType::_bool))
+        {
+            base.kind = Type::Kind::Bool;
+        }
+        else if (Match(TokenType::_void))
+        {
+            base.kind = Type::Kind::Void;
+
+        }
+        else
+        {
+            return std::nullopt;
+        }
+
+        auto declarator = ParseDeclarator();
+
+        auto b = std::make_shared<Type>(base);
+        auto type = BuildType(b, declarator.modifier.get());
+
+        return ParsedType{
+            std::move(type),
+            std::move(declarator)
+        };
+    }
 
 
-    int _currentIndex = 0;
+    Declarator ParseDeclarator()
+    {
+        Declarator decl;
+
+        // Count prefix pointers
+        size_t pointer_count = 0;
+        while (Match(TokenType::star))
+        {
+            pointer_count++;
+        }
+
+        // Parse identifier/group and postfix suffixes
+        decl = ParseDirectDeclarator();
+
+        // Wrap prefix pointers around the direct declarator modifier chain
+        for (size_t i = 0; i < pointer_count; ++i)
+        {
+            auto ptr = std::make_unique<DeclaratorModifier>();
+            ptr->kind = DeclaratorModifier::Kind::Pointer;
+
+            WrapModifier(decl.modifier, std::move(ptr));
+        }
+
+        return decl;
+    }
+
+    Declarator ParseDirectDeclarator(){
+        Declarator decl;
+
+        // A. Primary: Identifier OR Parenthesized Group
+        if (PeekToken() && PeekToken()->type == TokenType::_identifier)
+        {
+            decl.name = GetToken().value;
+        }
+        else if(Match(TokenType::open_paren))
+        {
+            decl = ParseDeclarator();
+            Consume(TokenType::close_paren);
+        }
+        else
+        {
+            throw std::runtime_error("Expected identifier or '('");
+        }
+
+        while (Match(TokenType::open_bracket))
+        {
+            size_t size = 0;
+            if (PeekToken() && PeekToken()->type == TokenType::int_literal)
+            {
+                size = std::stoull(GetToken().value);
+            }
+            Consume(TokenType::close_bracket);
+
+            // Add Array suffix: Postfix modifiers wrap OVER current direct modifiers
+            auto arr = std::make_unique<DeclaratorModifier>();
+            arr->kind = DeclaratorModifier::Kind::Array;
+            arr->array_size = size;
+
+            WrapModifier(decl.modifier, std::move(arr));
+        }
+
+        return decl;
+    }
+
+    std::shared_ptr<Type> BuildType(
+        std::shared_ptr<Type> base_type,
+        const DeclaratorModifier* mod)
+    {
+        if (!mod) return base_type;
+
+        switch (mod->kind) {
+        case DeclaratorModifier::Kind::Pointer:
+            return BuildType(Type::MakePointer(base_type), mod->child.get());
+
+        case DeclaratorModifier::Kind::Array:
+            return BuildType(Type::MakeArray(base_type, mod->array_size), mod->child.get());
+        }
+
+        return base_type;
+    }
 	std::vector<Token> _tokens;
 
     std::pmr::polymorphic_allocator<NodeExpr>* _allocator;
+    int _currentIndex = 0;
 };

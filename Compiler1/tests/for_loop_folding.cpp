@@ -1,8 +1,10 @@
 
 
 
-int increase_by_one();
-
+int increase_by_one()
+{
+	return 1;
+}
 
 int main()
 {
@@ -12,15 +14,10 @@ int main()
 	for (int a = 0; a != 10; a += increase_by_one())
 	{
 
-		i += 2;
+		i++;
 	}
 
 	return i;
 }
 
 
-
-int increase_by_one()
-{
-	return 1;
-}

@@ -1,20 +1,12 @@
 ﻿// Compiler1.cpp : Defines the entry point for the application.
 //
-
 #include "Compiler1.h"
-#include "tokenization.h"
-#include "Generator.h"
-#include <fstream>
-#include <sstream>
-#include <vector>
-#include <algorithm>
-#include "SemanticAnalyzer.h"
-#include "Constant Folder.h"
+
 
 
 int main(int argc, char* argv[])
 {
-
+	
 	if (argc < 2) {
 		std::cerr << "Usage: " << argv[0] << " <source_file.cpp> [output_file.asm]\n";
 		return EXIT_FAILURE;
@@ -39,25 +31,51 @@ int main(int argc, char* argv[])
 	std::vector<Token> tokens = tokenizer.tokenize(content);
 
 
+	std::pmr::monotonic_buffer_resource arena((1024 * 1024) * 4);
 
-	std::pmr::monotonic_buffer_resource arena(1024 * 1024);
-
-	// 2. Allocate AST nodes using pmr allocator
 	std::pmr::polymorphic_allocator<NodeExpr> alloc(&arena);
+	std::pmr::polymorphic_allocator<Instruction> allocTAC(&arena);
+
 
 	Parser parser(tokens, alloc);
 
 	auto exitNode = parser.ParseProgram();
 
-	SemanticAnalyzer analyzer(exitNode.value());
+	SemanticAnalyzer analyzer(exitNode.value(), alloc);
 	analyzer.Analyze();
 
-
-	auto folder = ConstantFolder(exitNode.value(), alloc);
+//	auto folder = ConstantFolder(exitNode.value(), alloc);
 	
+	IRLowering lowerer(exitNode.value(), alloc);
+	auto ir = lowerer.Lower();
 
-	folder.FoldProgram();
-	Generator gen(std::move(exitNode.value()));
+	TACLowering tac(ir, allocTAC);
+
+	auto t = tac.Lower();
+
+	BasicBlockBuilder builder(t, arena);
+	auto cfg = builder.Create();
+
+
+	PreMachineIR machine(cfg);
+	auto machIns = machine.Lower();
+
+	LivenessAnalysis analysis;
+	for (auto& function : machIns.functions)
+	{
+		RegisterAllocator reg;
+
+		auto liveInt = analysis.GetLiveIntervals(function);
+		auto data = reg.AllocateReg(liveInt, function);
+
+		function.stack_size = data.first;
+		function.usedCalleeSaved = data.second;
+	}
+	
+	PostMachineIR postMachIns(machIns);
+	postMachIns.Lower();
+
+	X86Generator gen(machIns);
 
 	
 	auto assembly = gen.GenerateProgram();
@@ -70,8 +88,11 @@ int main(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 	out << assembly;
-
+	std::cout << assembly << std::endl;
 	out.close();
+
+	
 
 	return 0;
 }
+

@@ -5,4 +5,12 @@
 
 #include <iostream>
 
-// TODO: Reference additional headers your program requires here.
+#include "Generator.h"
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <algorithm>
+#include "SemanticAnalyzer.h"
+#include "LivenessAnalysis.h"
+#include "PreMachineInstruction.h"
+#include "PostMachineInstruction.h"
