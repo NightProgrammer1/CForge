@@ -6,7 +6,7 @@ int main() {
             continue; // Skip i = 2
         }
 
-        for (int j = 0; j < 5; j = i + 1) {
+        for (int j = 0; j < 5; j = j + 1) {
             if (j == 3) {
                 break; // Break out of inner loop when j = 3
             }

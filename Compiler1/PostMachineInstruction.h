@@ -185,11 +185,12 @@ private:
             MachineInstruction newIns(machIns);
             auto& left = newIns.operands[0];
 
-            if (left.kind == MachineOperand::Kind::StackSlot)
+            if (left.kind == MachineOperand::Kind::StackSlot || left.kind == MachineOperand::Kind::Immediate)
             {
                 Move(MachineOperand::PhysicalReg(SCRATCH, left.size), left, left.size, fixed_stream);
                 left = MachineOperand::PhysicalReg(SCRATCH, left.size);
             }
+           
             fixed_stream.push_back(newIns);
 
             break;
