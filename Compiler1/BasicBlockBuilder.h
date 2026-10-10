@@ -15,10 +15,10 @@ public:
 	CFGProgram Create()
 	{
 		CFGProgram program;
-		for (auto tac : instructions.functions)
+		for (const auto& tac : instructions.functions)
 		{
 			
-			for (auto& ins : tac.instructions)
+			for (const auto& ins : tac.instructions)
 			{
 				V(ins);
 			}
@@ -63,7 +63,7 @@ private:
 	}
 	void V(Instruction* ins)
 	{
-		if (std::holds_alternative<IRStatementCJump>(ins->expr) || std::holds_alternative<IRStatementJump>(ins->expr))
+		if (std::holds_alternative<TACCJump>(ins->expr) || std::holds_alternative<TACJump>(ins->expr))
 		{
 			currentBlock.ins.push_back(ins);
 			if (currentBlock.label.empty()) {
@@ -71,9 +71,9 @@ private:
 			}
 			FinishBlock();
 		}
-		else if (auto label = std::get_if<IRStatementLabel>(&ins->expr))
+		else if (auto label = std::get_if<TACLabel>(&ins->expr))
 		{
-			
+			currentBlock.ins.push_back(ins);
 			FinishBlock();
 			currentBlock.label = label->label;
 		}

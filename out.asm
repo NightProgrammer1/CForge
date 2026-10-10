@@ -7,50 +7,29 @@ _start:
 main:
     push rbp
     mov rbp, rsp
-    sub rsp, 32
-    lea rax, [rbp - 16]
-    mov rcx, 0
-    imul rcx, 4
-    add rax, rcx
-    mov dword [rax], 100
-    lea rax, [rbp - 16]
-    mov rcx, 1
-    imul rcx, 4
-    add rax, rcx
-    mov dword [rax], 200
-    lea rax, [rbp - 16]
-    mov rcx, 2
-    imul rcx, 4
-    add rax, rcx
-    mov dword [rax], 300
-    lea rax, [rbp - 16]
-    mov rcx, 0
-    imul rcx, 4
-    add rax, rcx
-    mov qword [rbp - 24], rax
-    mov rax, 2
-    imul rax, 4
-    add rax, qword [rbp - 24]
-    mov qword [rbp - 24], rax
-    mov r11, qword [rbp - 24]
-    mov dword [r11], 400
-    lea rax, [rbp - 16]
-    mov rcx, 0
-    imul rcx, 4
-    add rax, rcx
-    mov eax, dword [rax]
-    lea rcx, [rbp - 16]
-    mov rdx, 1
-    imul rdx, 4
-    add rcx, rdx
-    mov ecx, dword [rcx]
-    add eax, ecx
-    lea rcx, [rbp - 16]
-    mov rdx, 2
-    imul rdx, 4
-    add rcx, rdx
-    mov ecx, dword [rcx]
-    add eax, ecx
+    sub rsp, 16
+    mov dword [rbp - 4], 0
+    mov dword [rbp - 8], 99
+    mov dword [rbp - 12], 0
+    mov r11d, dword [rbp - 4]
+    test r11d, r11d
+    jne if_end_2
+    if_true_0:
+    mov eax, dword [rbp - 12]
+    add eax, 10
+    mov dword [rbp - 12], eax
+    jmp if_end_2
+    if_end_2:
+    mov r11d, dword [rbp - 8]
+    test r11d, r11d
+    jne if_end_5
+    if_true_3:
+    mov eax, dword [rbp - 12]
+    add eax, 100
+    mov dword [rbp - 12], eax
+    jmp if_end_5
+    if_end_5:
+    mov eax, dword [rbp - 12]
     mov rsp, rbp
     pop rbp
     ret

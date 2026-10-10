@@ -108,7 +108,11 @@ struct Type {
         t->kind = Kind::Int;
         return t;
     }
-
+    static std::shared_ptr<Type> MakeVoid() {
+        auto t = std::make_shared<Type>();
+        t->kind = Kind::Void;
+        return t;
+    }
     static std::shared_ptr<Type> MakePointer(std::shared_ptr<Type> target) {
         auto t = std::make_shared<Type>();
         t->kind = Kind::Pointer;
@@ -259,7 +263,7 @@ struct NodeExprUnary
 
 struct NodeExprCompare
 {
-    Token op;
+    TokenType op;
     NodeExpr* left = nullptr;
     NodeExpr* right = nullptr;
 
@@ -367,32 +371,21 @@ struct NodeBlock
 struct NodeStatementIf
 {
     NodeExpr* condition = nullptr;
-    NodeBlock thenBlock;
-    std::optional<NodeBlock> elseBlock;
+    NodeStatement* thenBody = nullptr;
+    NodeStatement* elseBody = nullptr;
 };
 
 struct NodeStatementWhile
 {
     NodeExpr* condition = nullptr;
-    NodeBlock block;
-};
-struct NodeStatementFor
-{
-    std::variant< 
-        NodeExpr*,
-        NodeStatement*>
-        init;
-
-    NodeExpr* condition = nullptr;
+    NodeStatement* body = nullptr;
     NodeExpr* update = nullptr;
-    NodeBlock block;
 };
 
 struct NodeStatementExpr
 {
     NodeExpr* expr = nullptr;
 };
-\
 struct NodeStatementReturn
 {
     NodeExpr* expr = nullptr;
@@ -458,6 +451,7 @@ struct NodeFunction
 struct NodeProg
 {
     std::vector<NodeFunction> functions;
+    NodeBlock global_space;
 };
 
 
@@ -485,9 +479,25 @@ namespace TypeInfo {
     constexpr bool IsVoidPointer(const std::shared_ptr<Type>& type) {
         return (type->kind == Type::Kind::Void) && (type->element) && IsPointer(type->element); 
     }
-    constexpr bool IsVoid(const std::shared_ptr<Type>& type) {
-        return type->kind == Type::Kind::Void;
+
+    bool IsVoid(const std::shared_ptr<Type>& type) {
+        auto current = type;
+
+        while (current) {
+            if (current->kind == Type::Kind::Void) {
+                return true;
+            }
+
+            if (current->kind != Type::Kind::Pointer) {
+                return false;
+            }
+
+            current = current->element;
+        }
+
+        return false;
     }
+
     constexpr bool IsInteger(const std::shared_ptr<Type>& type) {
         return type->kind == Type::Kind::Int; 
     }

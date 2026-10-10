@@ -18,9 +18,17 @@ public:
                 prog.functions.push_back(ParseFunctions());
             }
             else {
-                std::cerr << "Syntax Error: Top-level code must be a function declaration or definition." << std::endl;
-                exit(EXIT_FAILURE);
+                if (auto statement = ParseStat()) {
+                    prog.global_space.statements.push_back(std::move(statement));
+                }
+                else
+                {
+                    std::cerr << "Invalid statement in block\n";
+                    exit(EXIT_FAILURE);
+                }
             }
+
+
         }
 
         return prog;
@@ -249,7 +257,7 @@ private:
             auto binary = _allocator->new_object<NodeExpr>();
 
             binary->var = NodeExprCompare{
-               op,
+               op.type,
                std::move(left),
                std::move(right)
             };
@@ -271,7 +279,7 @@ private:
 
             auto binary = _allocator->new_object<NodeExpr>();
             binary->var = NodeExprCompare{
-                op,
+                op.type,
                 std::move(left),
                 std::move(right)
             };
@@ -298,7 +306,7 @@ private:
             auto binary = _allocator->new_object<NodeExpr>();
 
             binary->var = NodeExprCompare{
-               op,
+               op.type,
                std::move(left),
                std::move(right)
             };
@@ -325,7 +333,7 @@ private:
             auto binary = _allocator->new_object<NodeExpr>();
 
             binary->var = NodeExprCompare{
-               op,
+               op.type,
                std::move(left),
                std::move(right)
             };
@@ -361,6 +369,16 @@ private:
         }
 
         return left;
+    }
+
+    std::shared_ptr<NodeBlock> ParseGlobalBlock()
+    {
+        static std::shared_ptr<NodeBlock> block = std::make_shared<NodeBlock>();
+
+      
+        Consume(TokenType::close_brace);
+
+        return block;
     }
     NodeBlock ParseBlock()
     {
@@ -478,31 +496,30 @@ private:
             tok->type == TokenType::_bool;
         // tok->type == TokenType::_float;
     }
-    NodeStatement* ParseAssignmentOrExprStatement()
+
+    NodeExpr* ParseExpression()
     {
         auto lhs = ParseFactor();
         if (!lhs) return nullptr;
 
         if (Match(TokenType::equal))
         {
-            NodeStatementAssignment assign;
+            NodeExprAssignment assign;
             assign.target = lhs;
 
             if (Match(TokenType::open_brace)) {
-              //  assign.expr = ParseInitializerList();
+                //  assign.expr = ParseInitializerList();
             }
             else {
                 assign.expr = ParseLogicalOr();
             }
 
-            Consume(TokenType::semicolon);
-            return _allocator->new_object<NodeStatement>(assign);
+            return _allocator->new_object<NodeExpr>(assign);
         }
 
         if (Match(TokenType::plus_equal))
         {
             auto rhs = ParseLogicalOr();
-            Consume(TokenType::semicolon);
 
             auto binary = _allocator->new_object<NodeExpr>();
             binary->var = NodeExprBinary{
@@ -511,15 +528,24 @@ private:
                 rhs
             };
 
-            NodeStatementAssignment assign;
+            NodeExprAssignment assign;
             assign.target = lhs;
             assign.expr = binary;
-            return _allocator->new_object<NodeStatement>(assign);
+            return _allocator->new_object<NodeExpr>(assign);
         }
 
-        Consume(TokenType::semicolon);
-        NodeStatementExpr expr_stmt;
-        expr_stmt.expr = lhs;
+
+        return lhs;
+    }
+    NodeStatement* ParseAssignmentOrExprStatement()
+    {
+       
+        auto expr = ParseExpression();
+        if (!expr) return nullptr;
+
+        Consume(TokenType::semicolon); // Semicolon consumed ONLY for full statements!
+
+        NodeStatementExpr expr_stmt{ expr };
         return _allocator->new_object<NodeStatement>(expr_stmt);
     }
     NodeFunction ParseFunctions()
@@ -576,6 +602,7 @@ private:
         NodeStatementIf _if;
         if (auto node_expr = ParseLogicalOr())
         {
+            
             _if.condition = std::move(node_expr);
         }
         else
@@ -586,18 +613,19 @@ private:
 
 
         Consume(TokenType::open_brace);
-        _if.thenBlock = std::move(ParseBlock());
+        _if.thenBody = _allocator->new_object<NodeStatement>(ParseBlock());
         if (Match(TokenType::_else))
         {
             if (Match(TokenType::_if))
             {
-                _if.elseBlock = NodeBlock{};
-                _if.elseBlock->statements.push_back(ParseIf());
+                auto body = NodeBlock{};
+                body.statements.push_back(ParseIf());
+                _if.elseBody = _allocator->new_object<NodeStatement>(body);
             }
             else
             {
                 TryConsume(TokenType::open_brace);
-                _if.elseBlock = ParseBlock();
+                _if.elseBody = _allocator->new_object<NodeStatement>(ParseBlock());
             }
         }
 
@@ -622,7 +650,7 @@ private:
             exit(EXIT_FAILURE);
         }
         Consume(TokenType::open_brace);
-        _while.block = std::move(ParseBlock());
+        _while.body = _allocator->new_object<NodeStatement>(ParseBlock());
 
 
         return _allocator->new_object<NodeStatement>(_while);
@@ -631,7 +659,7 @@ private:
     NodeStatement* ParseFor()
     {
 
-        NodeStatement* updateExpr = nullptr;
+        NodeExpr* updateExpr = nullptr;
         NodeBlock block;
         NodeStatementWhile _while;
         Consume(TokenType::open_paren);
@@ -665,24 +693,23 @@ private:
         }
         else {
             // Default to true
-            _while.condition = _allocator->new_object<NodeExpr>(NodeExprBoolLit{ true });
+            _while.condition = _allocator->new_object<NodeExpr>(NodeExprBoolLit{ true }, Type::MakeBool());
         }
         Consume(TokenType::semicolon);
         //update
         if (PeekToken() && PeekToken()->type != TokenType::close_paren) {
-            if (auto expr = ParseCompoundAssign()) {
-                updateExpr = _allocator->new_object<NodeStatement>(NodeStatementExpr{ expr });
+            if (auto expr = ParseExpression()) {
+                updateExpr = expr;
             }
         }
         Consume(TokenType::close_paren);
         //body
         Consume(TokenType::open_brace);
 
-        auto bodyBlock = _allocator->new_object<NodeStatement>(NodeBlock{ ParseBlock() });
-        _while.block.statements.push_back(bodyBlock);
+        _while.body = _allocator->new_object<NodeStatement>(NodeBlock{ ParseBlock() });
 
         if (updateExpr) {
-            _while.block.statements.push_back(updateExpr);
+            _while.update = updateExpr;
         }
 
         block.statements.push_back(_allocator->new_object<NodeStatement>(_while));

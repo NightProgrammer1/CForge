@@ -32,7 +32,56 @@ public:
 	}
 
 private:
+	IRExpr* LowerLogicalAnd(IRExpr* temp, IRExpr* left, IRExpr* right)
+	{
+		std::string labelFalse = GetFreshLabel("L_and_false_");
+		std::string labelEnd = GetFreshLabel("L_and_end_");
 
+		// Evaluate the left equation jump if false
+		auto leftVal = LowerExpr(left);
+		Emit(TACCJump{ leftVal, labelFalse });
+
+		auto rightVal = LowerExpr(right);
+		Emit(TACCJump{ rightVal, labelFalse });
+
+		Emit(TACMove{ temp, MakeConst(1) });
+		Emit(TACJump{ labelEnd });
+
+		// False branch 
+		Emit(TACLabel{ labelFalse });
+		Emit(TACMove{ temp, MakeConst(0) });
+
+		// Join Point
+		Emit(TACLabel{ labelEnd });
+		return temp;
+	}
+
+	IRExpr* LowerLogicalOr(IRExpr* temp, IRExpr* left, IRExpr* right)
+	{
+		std::string labelEvalRight = GetFreshLabel("L_or_right_");
+		std::string labelBothFalse = GetFreshLabel("L_or_false_");
+		std::string labelEnd = GetFreshLabel("L_or_end_");
+
+		auto leftVal = LowerExpr(left);
+		Emit(TACCJump{ leftVal, labelEvalRight });
+
+		Emit(TACMove{ temp, MakeConst(1) });
+		Emit(TACJump{ labelEnd });
+
+		Emit(TACLabel{ labelEvalRight });
+		auto rightVal = LowerExpr(right);
+
+		Emit(TACCJump{ rightVal, labelBothFalse });
+
+		Emit(TACMove{ temp, MakeConst(1) });
+		Emit(TACJump{ labelEnd });
+
+		Emit(TACLabel{ labelBothFalse });
+		Emit(TACMove{ temp, MakeConst(0) });
+
+		Emit(TACLabel{ labelEnd });
+		return temp;
+	}
 	IRExpr* LowerExpr(IRExpr* expr)
 	{
 
@@ -53,18 +102,47 @@ private:
 				return expr;
 			}
 			
-			IRExpr* operator()(const IRExprBinop& binary) const {
-				auto left = tac.LowerExpr(binary.left);
-				auto right = tac.LowerExpr(binary.right);
+			IRExpr* operator()(const IRExprBinop& binop) const {
+				
 
 				auto temp = tac._allocator.new_object<IRExpr>(IRExprTemp{ ValueID::Create() }, expr->type);
-				tac.Emit(TACBinop{
-					temp,
-					binary.op,
-					left,
-					right });
 
-				return temp;
+				return std::visit([this, &binop](auto&& op) -> IRExpr* {
+					using T = std::decay_t<decltype(op)>;
+
+					// 1. Short-Circuit Logical Operators (&&, ||)
+					if constexpr (std::is_same_v<T, LogicalOp>) {
+						auto temp = tac._allocator.new_object<IRExpr>(IRExprTemp{ ValueID::Create() }, this->expr->type);
+						if (op == LogicalOp::And) {
+							return tac.LowerLogicalAnd(temp, binop.left, binop.right);
+						}
+						else {
+							return tac.LowerLogicalOr(temp, binop.left, binop.right);
+						}
+					}
+
+					// 2. Relational Comparison Operators (==, !=, <, etc.)
+					else if constexpr (std::is_same_v<T, RelationalOp>) {
+						auto leftVal = tac.LowerExpr(binop.left);
+						auto rightVal = tac.LowerExpr(binop.right);
+
+						auto temp = tac._allocator.new_object<IRExpr>(IRExprTemp{ ValueID::Create() }, this->expr->type);
+						// Emits sete/setl boolean result for register storage
+						tac.Emit(TACBinop{ temp, op, leftVal, rightVal });
+						return temp;
+					}
+
+					// 3. Eager Arithmetic & Bitwise Operators (+, -, *, etc.)
+					else if constexpr (std::is_same_v<T, BinaryOp>) {
+						auto leftVal = tac.LowerExpr(binop.left);
+						auto rightVal = tac.LowerExpr(binop.right);
+
+						auto temp = tac._allocator.new_object<IRExpr>(IRExprTemp{ ValueID::Create() }, this->expr->type);
+						tac.Emit(TACBinop{ temp, op, leftVal, rightVal });
+						return temp;
+					}
+					}, binop.op);
+
 			}
 
 			IRExpr* operator()(const IRExprCall& call) const {
@@ -123,6 +201,12 @@ private:
 		return std::visit(ExprVisitor{ *this, expr }, expr->expr);
 	}
 
+
+
+	IRExpr* MakeConst(const ConstValue::Scalar& value) const
+	{
+		return _allocator.new_object<IRExpr>(IRExprConst{ value });
+	}
 	IRExpr* LowerAddress(IRExpr* expr)
 	{
 		if (auto mem = std::get_if<IRExprMem>(&expr->expr))
@@ -174,21 +258,33 @@ private:
 			void operator()(IRStatementJump& jump)
 			{
 
-				tacLowering->Emit(jump);
+				tacLowering->Emit(TACJump{jump.label});
 
 			}
 			void operator()(IRStatementCJump& cjump)
 			{
+				if (auto binop = std::get_if<IRExprBinop>(&cjump.cond->expr)) {
+
+					if (binop->IsRelational()) {
+						auto left = tacLowering->LowerExpr(binop->left);
+						auto right = tacLowering->LowerExpr(binop->right);
+
+						tacLowering->Emit(TACRelationalCJump{
+							Invert(binop->GetRelationalOp()),       
+							left,
+							right,
+							cjump.labelFalse
+							});
+
+						return;
+					}
+				}
 				auto cond = tacLowering->LowerExpr(cjump.cond);
-
-				tacLowering->Emit(
-					IRStatementCJump{ cond, cjump.labelTrue, cjump.labelFalse }
-				);
-
+				tacLowering->Emit(TACCJump{ cond, cjump.labelFalse });
 			}
 			void operator()(IRStatementLabel& label)
 			{
-				tacLowering->Emit(label);
+				tacLowering->Emit(TACLabel{label.label});
 
 			}
 			
@@ -226,15 +322,42 @@ private:
 
 	}
 	
+	bool IsRelationOp(const TokenType& op) const
+	{
+		return (op >= TokenType::less) && (op <=  TokenType::not_equal);
+	}
+
+	TokenType GetInvertedOp(const TokenType& op)
+	{
+		std::unordered_map<TokenType, TokenType> map
+		{
+			{TokenType::equal_equal, TokenType::not_equal },
+			{ TokenType::not_equal, TokenType::equal_equal },
+			{ TokenType::less, TokenType::greater },
+			{ TokenType::greater, TokenType::less },
+			{ TokenType::less_equal, TokenType::greater_equal },
+			{ TokenType::greater_equal, TokenType::less_equal },
+
+
+		};
+
+
+		return map.at(op);
+	}
 	IRExprTemp CreateTemp()
 	{
 		return IRExprTemp(Register::VReg{ ValueID::Create()});
 	}
-
+	std::string GetFreshLabel(const std::string& label)
+	{
+		return label + std::to_string(label_counter++);
+	}
 	std::pmr::polymorphic_allocator<Instruction>& _allocator;
 	IRProgram& ir;
 
 	TAC tac;
 	std::unordered_map<std::string, size_t> variables;
 	size_t temp_count = 1;
+	size_t label_counter = 0;
+
 };

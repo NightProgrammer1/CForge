@@ -179,6 +179,21 @@ private:
 
             break;
         }
+        case MachineOpcode::TEST:
+        {
+            assert(machIns.operands.size() >= 1 && "Instruction is missing operands");
+            MachineInstruction newIns(machIns);
+            auto& left = newIns.operands[0];
+
+            if (left.kind == MachineOperand::Kind::StackSlot)
+            {
+                Move(MachineOperand::PhysicalReg(SCRATCH, left.size), left, left.size, fixed_stream);
+                left = MachineOperand::PhysicalReg(SCRATCH, left.size);
+            }
+            fixed_stream.push_back(newIns);
+
+            break;
+        }
         default:
         {
             fixed_stream.push_back(machIns);

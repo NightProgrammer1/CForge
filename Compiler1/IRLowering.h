@@ -12,6 +12,12 @@ public:
 	IRProgram Lower()
 	{
 		IRProgram irTree;
+
+
+		for (const auto& stat : ast.global_space.statements) {
+			statements.clear();
+			LowerStatement(*stat);
+		}
 		for (const auto& func : ast.functions)
 		{
 			statements.clear();
@@ -97,6 +103,7 @@ private:
 			}
 			IRExpr* operator()(const NodeExprBinary& binary)
 			{
+				
 				auto left = irLowering->LowerExpr(*binary.left);
 				auto right = irLowering->LowerExpr(*binary.right);
 
@@ -114,7 +121,7 @@ private:
 						{
 							int elemSize = static_cast<int>(TypeInfo::GetTypeSize(*baseType));
 							auto sizeExpr = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ elemSize });
-							right = irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenType::star, right, sizeExpr }, expr.type);
+							right = irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenToBinaryOp(TokenType::star), right, sizeExpr }, expr.type);
 						}
 					}
 					else if (!leftPointer && rightPointer)
@@ -123,7 +130,7 @@ private:
 						{
 							int elemSize = static_cast<int>(TypeInfo::GetTypeSize(*baseType));
 							auto sizeExpr = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ elemSize });
-							left = irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenType::star, left, sizeExpr }, expr.type);
+							left = irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenToBinaryOp(TokenType::star), left, sizeExpr }, expr.type);
 						}
 					}
 
@@ -135,29 +142,31 @@ private:
 						{
 							int elemSize = static_cast<int>(TypeInfo::GetTypeSize(*baseType));
 							auto sizeExpr = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ elemSize });
-							right = irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenType::star, right, sizeExpr }, expr.type);
+							right = irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenToBinaryOp(TokenType::star), right, sizeExpr }, expr.type);
 						}
 					}
 					else if (leftPointer && rightPointer)
 					{
 						// Emit (left - right) / sizeof(*left)
-						auto diff = irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenType::sub, left, right }, expr.type);
+						auto diff = irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenToBinaryOp(TokenType::sub), left, right }, expr.type);
 						if (auto baseType = TypeInfo::GetBaseType(leftInfo))
 						{
 							int elemSize = static_cast<int>(TypeInfo::GetTypeSize(*leftInfo->element));
 							auto sizeExpr = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ elemSize });
-							return irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenType::div, diff, sizeExpr }, expr.type);
+							return irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenToBinaryOp(TokenType::div), diff, sizeExpr }, expr.type);
 						}
 					}
 				}
-			
-				return irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ binary.op, left, right }, expr.type);
+				
+
+				return irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenToBinaryOp(binary.op), left, right }, expr.type);
 			}
 			IRExpr* operator()(const NodeExprCompare& comp)
 			{
 				auto left = irLowering->LowerExpr(*comp.left);
 				auto right = irLowering->LowerExpr(*comp.right);
-				return irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ comp.op.type, left, right }, expr.type);
+
+				return irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ ConvertToIROp(comp.op), left, right }, expr.type);
 			}
 			IRExpr* operator()(const NodeExprCall& funcCall)
 			{
@@ -251,7 +260,7 @@ private:
 
 					irLowering->Emit(IRStatementMove{ oldTemp, target });
 
-					auto calculation = IRExprBinop{ TokenType::plus, oldTemp, stride };
+					auto calculation = IRExprBinop{ BinaryOp::Add, oldTemp, stride };
 					auto calcExpr = irLowering->_allocator.new_object<IRExpr>(calculation, un.expr->type);
 
 					irLowering->Emit(IRStatementMove{ target, calcExpr });
@@ -272,7 +281,7 @@ private:
 						stride = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ 1 });
 					}
 
-					auto calculation = IRExprBinop{ TokenType::plus, target, stride };
+					auto calculation = IRExprBinop{ BinaryOp::Add, target, stride };
 					auto calcExpr = irLowering->_allocator.new_object<IRExpr>(calculation);
 
 					irLowering->Emit(IRStatementMove{ target, calcExpr });
@@ -293,7 +302,7 @@ private:
 						stride = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ 1 });
 					}
 
-					auto calculation = IRExprBinop{ TokenType::sub, target, stride };
+					auto calculation = IRExprBinop{ BinaryOp::Sub, target, stride };
 					auto calcExpr = irLowering->_allocator.new_object<IRExpr>(calculation);
 
 					irLowering->Emit(IRStatementMove{ target, calcExpr });
@@ -321,7 +330,7 @@ private:
 
 					irLowering->Emit(IRStatementMove{ oldTemp, target });
 
-					auto calculation = IRExprBinop{ TokenType::sub, oldTemp, stride };
+					auto calculation = IRExprBinop{ BinaryOp::Sub, oldTemp, stride };
 					auto calcExpr = irLowering->_allocator.new_object<IRExpr>(calculation);
 
 					irLowering->Emit(IRStatementMove{ target, calcExpr });
@@ -329,6 +338,16 @@ private:
 					return oldTemp;
 					break;
 
+				}
+				case TokenType::_not:
+				{
+					auto target = irLowering->LowerExpr(*un.expr, ExprContext::RValue);
+					auto zero = irLowering->MakeConst(0); 
+
+					return irLowering->_allocator.new_object<IRExpr>(
+						IRExprBinop{ RelationalOp::Equal, target, zero },
+						expr.type
+					);
 				}
 				default:
 					return nullptr;
@@ -390,7 +409,7 @@ private:
 						);
 
 						dimOffset = irLowering->_allocator.new_object<IRExpr>(
-							IRExprBinop{ TokenType::star, index, strideExpr }, Type::MakePointer(Type::MakeInt())
+							IRExprBinop{ TokenToBinaryOp(TokenType::star), index, strideExpr }, Type::MakePointer(Type::MakeInt())
 						);
 					}
 
@@ -399,14 +418,14 @@ private:
 					}
 					else {
 						totalOffset = irLowering->_allocator.new_object<IRExpr>(
-							IRExprBinop{ TokenType::plus, totalOffset, dimOffset }, Type::MakePointer(Type::MakeInt())
+							IRExprBinop{ TokenToBinaryOp(TokenType::plus), totalOffset, dimOffset }, Type::MakePointer(Type::MakeInt())
 						);
 					}
 				}
 				if (totalOffset)
 				{
 					base = irLowering->_allocator.new_object<IRExpr>(
-						IRExprBinop{ TokenType::plus, base, totalOffset }, Type::MakePointer(Type::MakeInt())
+						IRExprBinop{ TokenToBinaryOp(TokenType::plus), base, totalOffset }, Type::MakePointer(Type::MakeInt())
 					);
 				}
 				size_t totalDimensions = TypeInfo::GetArrayDimensions(arrayExpr->type).size();
@@ -487,31 +506,27 @@ private:
 					irLowering->LowerStatement(*stat);
 				}
 			}
-			void operator()(NodeStatementIf& stat)
+			void operator()(NodeStatementIf& ifStmt)
 			{
 				std::string labelTrue = irLowering->GetFreshLabel("if_true_");
 				std::string labelFalse = irLowering->GetFreshLabel("if_false_");
 				std::string labelEnd = irLowering->GetFreshLabel("if_end_");
 
-				auto cond = irLowering->LowerExpr(*stat.condition);
+				auto condVal = irLowering->LowerExpr(*ifStmt.condition);
 
-				irLowering->Emit(IRStatementCJump{ cond, labelTrue, labelFalse }); // Cjump
-				
-				irLowering->Emit(IRStatementLabel{ labelTrue }); // True label
+				irLowering->Emit(IRStatementCJump{ condVal, ifStmt.elseBody ? labelFalse : labelEnd});
 
-				auto thenBody = NodeStatement{ stat.thenBlock };
-				irLowering->LowerStatement(thenBody);
+				irLowering->Emit(IRStatementLabel{ labelTrue });
+				irLowering->LowerStatement(*ifStmt.thenBody);
+				irLowering->Emit(IRStatementJump{ labelEnd });
 
-				irLowering->Emit(IRStatementJump{ labelEnd }); // Jump end
-				irLowering->Emit(IRStatementLabel{ labelFalse }); // False label
-
-
-				if (stat.elseBlock) {
-					auto elseBody = NodeStatement{ *stat.elseBlock };
-					irLowering->LowerStatement(elseBody);
+				if (ifStmt.elseBody) {
+					irLowering->Emit(IRStatementLabel{ labelFalse });
+					auto elseB = NodeStatement{ *ifStmt.elseBody };
+					irLowering->LowerStatement(elseB);
 				}
 
-				irLowering->Emit(IRStatementLabel{ labelEnd }); // End label
+				irLowering->Emit(IRStatementLabel{ labelEnd });
 
 			}
 			void operator()(NodeStatementWhile& _while)
@@ -524,34 +539,33 @@ private:
 
 				std::string endLabel =
 					irLowering->GetFreshLabel("while_end");
+				std::string labelStep = 
+					irLowering->GetFreshLabel("for_step_");
 
 				// Condition block
 				irLowering->Emit(IRStatementLabel{ condLabel });
 
 				auto cond = irLowering->LowerExpr(*_while.condition);
-
-				irLowering->Emit(
-					IRStatementCJump{
-						cond,
-						bodyLabel,
-						endLabel
-					}
-				);
-
+				irLowering->Emit(IRStatementCJump{
+							cond,
+							endLabel
+					});
 				// Body
 				irLowering->Emit(IRStatementLabel{ bodyLabel });
 
-				irLowering->PushLoop(condLabel, endLabel);
+				irLowering->PushLoop(_while.update ? labelStep : condLabel, endLabel);
 
-				auto body = NodeStatement{ _while.block };
-				irLowering->LowerStatement(body);
+				irLowering->LowerStatement(*_while.body);
 
-				irLowering->PopLoop();
-
+				if (_while.update) {
+					irLowering->Emit(IRStatementLabel{ labelStep });
+					irLowering->LowerExpr(*_while.update);
+				}
 				irLowering->Emit(IRStatementJump{ condLabel });
 
 				// Exit
 				irLowering->Emit(IRStatementLabel{ endLabel });
+				irLowering->PopLoop();
 			}
 			void operator()(NodeStatementBreak& _break)
 			{
@@ -647,7 +661,7 @@ private:
 		auto elementAddress =
 			_allocator.new_object<IRExpr>(
 				IRExprBinop{
-					TokenType::plus,
+					TokenToBinaryOp(TokenType::plus),
 					address,
 					offsetExpr,
 				}, Type::MakePointer(Type::MakeInt())
@@ -721,6 +735,10 @@ private:
 			return ident->symbol->id;
 
 		return 0;
+	}
+	IRExpr* MakeConst(const ConstValue::Scalar& value) const
+	{
+		return _allocator.new_object<IRExpr>(IRExprConst{ value });
 	}
 	void PushLoop(const std::string& start, const std::string& end) {
 		continueLabels.push_back(start);

@@ -13,9 +13,12 @@ enum class MachineOpcode
     MOVZX,
     ADD,
     SUB,
+    MUL,
     IMUL,
     IDIV,
+    DIV,
     CMP,
+    TEST,
     JMP,
     JE,
     JNE,
@@ -23,6 +26,10 @@ enum class MachineOpcode
     JLE,
     JG,
     JGE,
+    JB,
+    JBE,
+    JA,
+    JAE,
     CALL,
     LABEL,
     RET,
@@ -39,7 +46,17 @@ enum class MachineOpcode
     SETA,
     SETAE,
     SETB,
-    SETBE
+    SETBE,
+
+
+    AND,
+    OR,
+    XOR,
+    SHL,
+    SAR,
+    SHR,
+
+    INVALID
 };
 
 struct VRegOperand
@@ -64,6 +81,8 @@ struct StackObjectOperand
 struct ImmediateOperand
 {
     ConstValue::Scalar value;
+
+
 };
 
 struct LabelOperand
@@ -118,7 +137,7 @@ struct MachineOperand
     {
         return { StackObjectOperand(object), Kind::StackObject, size };
     }
-    static MachineOperand Immediate(ConstValue::Scalar& value, const Memory::OperandSize& size)
+    static MachineOperand Immediate(const ConstValue::Scalar& value, const Memory::OperandSize& size)
     {
         return { ImmediateOperand(value), Kind::Immediate, size };
     }
@@ -180,43 +199,6 @@ public:
                 ins.clear();
                 for (size_t i = 0; i < block.ins.size(); i++)
                 {
-                    if (auto bin = std::get_if<TACBinop>(&block.ins[i]->expr))// For condition
-                    {
-                        if (i + 1 < block.ins.size())
-                        {
-                            if (auto cjump = std::get_if<IRStatementCJump>(&block.ins[i + 1]->expr))
-                            {
-                                auto condition = std::get_if<IRExprTemp>(&cjump->cond->expr);
-                                auto dst = std::get<IRExprTemp>(bin->dst->expr);
-                                if (condition && condition->virtualRegister.id == dst.virtualRegister.id)
-                                {
-                                    auto left = LowerTacExpr(bin->left);
-                                    auto right = LowerTacExpr(bin->right);
-
-                                    Emit(MachineInstruction{
-                                        MachineOpcode::CMP,
-                                        { std::move(left), std::move(right) }
-                                        });
-
-                                    Emit(MachineInstruction{
-                                        GetJumpOpcode(bin->op),
-                                        { MachineOperand::Label(cjump->labelTrue) }
-                                        });
-
-                                    Emit(MachineInstruction{
-                                        MachineOpcode::JMP,
-                                        { MachineOperand::Label(cjump->labelFalse) }
-                                        });
-                                }
-
-                                i++;
-                                continue;
-
-                            }
-                        }
-
-                    }
-
                     LowerTac(block.ins[i]);
                 }
 
@@ -233,6 +215,7 @@ public:
       
         return machProg;
     }
+  
 private:
 
     MachineOperand LowerTacExpr(IRExpr* expr)
@@ -258,7 +241,6 @@ private:
             );
         
         }
-
         else if (auto addressOf = std::get_if<IRExprAddressOf>(&expr->expr))
         {
             auto loweredAdd = LowerTacExpr(addressOf->object);
@@ -277,234 +259,279 @@ private:
     {
         using namespace Memory;
 
-        if (auto bin = std::get_if<TACBinop>(&tacInstruction->expr)){
+        if (!tacInstruction) return;
+        struct Visitor
+        {
+            PreMachineIR& ir;
 
-            auto dst = LowerTacExpr(bin->dst);
-            auto left = LowerTacExpr(bin->left);
-            auto right = LowerTacExpr(bin->right);
-            
-            if ((bin->op == TokenType::less) || (bin->op == TokenType::less_equal) || (bin->op == TokenType::greater) ||
-                (bin->op == TokenType::greater_equal) || (bin->op == TokenType::equal_equal) || (bin->op == TokenType::not_equal)
+            void operator()(const TACBinop& bin) {
+                auto dst = ir.LowerTacExpr(bin.dst);
+                auto left = ir.LowerTacExpr(bin.left);
+                auto right = ir.LowerTacExpr(bin.right);
 
-                )
-            {
-                MachineInstruction cmp;
-                cmp.opcode = MachineOpcode::CMP;
-                cmp.operands.push_back(left);
-                cmp.operands.push_back(right);
+                // =========================================================================
+                // 1. Relational Operations (==, !=, <, <=, >, >=)
+                // =========================================================================
+                if (auto op = std::get_if<RelationalOp>(&bin.op)) {
+                    MachineInstruction cmpInst;
 
+                    bool is_right_zero = false;
+                    if (auto im = std::get_if<ImmediateOperand>(&right.operand)) {
+                        is_right_zero = std::visit([](auto&& arg) -> bool { return arg == 0; }, im->value);
+                    }
 
+                    // Optimization: Use TEST reg, reg when checking (reg == 0) or (reg != 0)
+                    if (is_right_zero && (*op == RelationalOp::Equal || *op == RelationalOp::NotEqual)) {
+                        cmpInst.opcode = MachineOpcode::TEST;
+                        cmpInst.operands = { left, left };
+                    }
+                    else {
+                        cmpInst.opcode = MachineOpcode::CMP;
+                        cmpInst.operands = { left, right };
+                    }
+                    ir.Emit(cmpInst);
+
+                    MachineInstruction setInst;
+                    setInst.opcode = ir.GetMachineOpcode(*op, bin.dst->type->is_signed);
+                    setInst.operands = { dst }; // dst must be an 8-bit byte register/mem
+                    ir.Emit(setInst);
+                }
+
+                // =========================================================================
+                // Binary Operations (+, -, *, /, %, &, |, ^, <<, >>)
+                // =========================================================================
+                else if (auto op = std::get_if<BinaryOp>(&bin.op)) {
+                    bool isSigned = bin.dst->type->is_signed;
+
+                    // Special Case: Division (/) and Modulo (%)
+                    if (*op == BinaryOp::Div || *op == BinaryOp::Mod) {
+                        auto rax = MachineOperand::PhysicalReg(Register::Reg::RAX);
+                        auto rdx = MachineOperand::PhysicalReg(Register::Reg::RDX);
+
+                        ir.Emit(MachineInstruction{ MachineOpcode::MOV, { rax, left } });
+
+                        if (isSigned) {
+                            ir.Emit(MachineInstruction{ MachineOpcode::CQO, {} }); // RAX -> RDX:RAX
+                        }
+                        else {
+                            ir.Emit(MachineInstruction{ MachineOpcode::XOR, { rdx, rdx } }); // RDX = 0
+                        }
+
+                        MachineOpcode divOp = isSigned ? MachineOpcode::IDIV : MachineOpcode::DIV;
+                        ir.Emit(MachineInstruction{ divOp, { right } });
+
+                        MachineOperand resultReg = (*op == BinaryOp::Div) ? rax : rdx;
+                        ir.Emit(MachineInstruction{ MachineOpcode::MOV, { dst, resultReg } });
+                    }
+                    else {
+                        MachineInstruction arithInst;
+                        arithInst.opcode = ir.GetMachineOpcode(*op, isSigned);
+                        arithInst.operands = { dst, left, right };
+                        ir.Emit(arithInst);
+                    }
+                }
+            }
+            void operator()(const TACMove& move){
                 MachineInstruction code;
-                code.opcode = GetMachineOpcode(bin->op, bin->dst->type->is_signed);
-                code.operands.push_back(dst);
+                auto dstOp = ir.LowerTacExpr(move.dst);
+                auto srcOp = ir.LowerTacExpr(move.src);
 
-                ins.push_back(cmp);
-                ins.push_back(code);
-            }
-            else if (bin->op == TokenType::div)
-            {
-
-                auto leftOp = LowerTacExpr(bin->left);
-                auto rightOp = LowerTacExpr(bin->right);
-                auto dstOp = LowerTacExpr(bin->dst);
-                auto rax = MachineOperand::PhysicalReg(Register::Reg::RAX);
-                auto rdx = MachineOperand::PhysicalReg(Register::Reg::RDX);
-
-                MachineInstruction movLeft;
-                movLeft.opcode = MachineOpcode::MOV;
-                movLeft.operands = { rax, leftOp };
-                ins.push_back(movLeft);
-
-                MachineInstruction cqo;
-                cqo.opcode = MachineOpcode::CQO;
-                ins.push_back(cqo);
-
-                MachineInstruction idiv;
-                idiv.opcode = MachineOpcode::IDIV;
-                idiv.operands = { rightOp };
-                ins.push_back(idiv);
-
-                MachineInstruction movDst;
-                movDst.opcode = MachineOpcode::MOV;
-                movDst.operands = { dstOp, rax };
-                ins.push_back(movDst);
-            }
-
-            else
-            {
-                MachineInstruction code;
-
-
-                code.opcode = GetMachineOpcode(bin->op, bin->dst->type->is_signed);
-                code.operands.push_back(
-                    dst
-                );
-                code.operands.push_back(
-                    left
-                );
-
-                code.operands.push_back(
-                    right
-                );
-
-                ins.push_back(code);
-            }
-            
-        }
-        else if (auto move = std::get_if<TACMove>(&tacInstruction->expr))
-        {
-            MachineInstruction code;
-            auto dstOp = LowerTacExpr(move->dst);
-            auto srcOp = LowerTacExpr(move->src);
-
-            code.opcode = MachineOpcode::MOV;
-
-            code.operands.push_back(dstOp);
-            code.operands.push_back(srcOp);
-            ins.push_back(code);
-        }
-        else if (auto address = std::get_if<TACAddressOf>(&tacInstruction->expr))
-        {
-            MachineInstruction code;
-
-            code.opcode = MachineOpcode::LEA;
-            code.operands.push_back(LowerTacExpr(address->dst));
-            code.operands.push_back(LowerTacExpr(address->object));
-
-            ins.push_back(code);
-        }
-        else if (auto load = std::get_if<TACLoad>(&tacInstruction->expr))
-        {
-            MachineInstruction code;
-            auto dstOp = LowerTacExpr(load->dst);
-            auto srcOp = LowerTacExpr(load->src);
-
-
-            OperandSize accessSize = dstOp.size;
-            auto memOp = MachineOperand::Memory(
-                srcOp,
-                accessSize, false
-            );
-            if (accessSize == OperandSize::Dword && dstOp.size == OperandSize::Qword)
-            {
-                code.opcode = MachineOpcode::MOVSXD;
-
-            }
-            else
-            {
                 code.opcode = MachineOpcode::MOV;
 
+                code.operands.push_back(dstOp);
+                code.operands.push_back(srcOp);
+                ir.Emit(code);
             }
+            void operator()(const TACAddressOf& address){
+                MachineInstruction code;
 
-            code.operands.push_back(dstOp);
-            code.operands.push_back(memOp);
-            ins.push_back(code);
+                code.opcode = MachineOpcode::LEA;
+                code.operands.push_back(ir.LowerTacExpr(address.dst));
+                code.operands.push_back(ir.LowerTacExpr(address.object));
+
+                ir.Emit(code);
+            }
+            void operator()(const TACLoad& load) {
+                MachineInstruction code;
+                auto dstOp = ir.LowerTacExpr(load.dst);
+                auto srcOp = ir.LowerTacExpr(load.src);
+
+
+                OperandSize accessSize = dstOp.size;
+                auto memOp = MachineOperand::Memory(
+                    srcOp,
+                    accessSize, false
+                );
+                if (accessSize == OperandSize::Dword && dstOp.size == OperandSize::Qword)
+                {
+                    code.opcode = MachineOpcode::MOVSXD;
+
+                }
+                else
+                {
+                    code.opcode = MachineOpcode::MOV;
+
+                }
+                code.operands.push_back(dstOp);
+                code.operands.push_back(memOp);
+                ir.Emit(code);
+
+            }
+            void operator()(const TACMoveMem& move) {
+                MachineInstruction code;
+
+                auto address = ir.LowerTacExpr(move.dst);
+                code.opcode = MachineOpcode::STORE;
+
+
+                auto src = ir.LowerTacExpr(move.src);
+                auto dest = MachineOperand::Memory(address, src.size); // destination size is always the same as source size
+
+
+                code.operands.push_back(
+                    dest
+                );
+
+                code.operands.push_back(
+                    src
+                );
+
+                ir.Emit(code);
+            }
+            void operator()(const TACCJump& cjump) {
                
-        }
-        else if (auto move = std::get_if<TACMoveMem>(&tacInstruction->expr))
-        {
-            MachineInstruction code;
-
-            auto address = LowerTacExpr(move->dst);
-            code.opcode = MachineOpcode::STORE;
-
-
-            auto src = LowerTacExpr(move->src);
-            auto dest = MachineOperand::Memory(address, src.size); // destination size is always the same as source size
-
-
-            code.operands.push_back(
-                dest
-            );
-
-            code.operands.push_back(
-                src
-            );
-
-            ins.push_back(code);
-
-        }
-        else if (auto jump = std::get_if<IRStatementJump>(&tacInstruction->expr)) {
-            Emit(MachineInstruction{ 
-                 MachineOpcode::JMP,
-                { MachineOperand::Label(jump->label) }
-                });
-        }
-        else if (auto call = std::get_if<TACCall>(&tacInstruction->expr)) {
-            // System V AMD64 ABI argument registers
-            const std::array<Register::Reg, 6> PARAM_REGS = {
-                Register::Reg::RDI,
-                Register::Reg::RSI,
-                Register::Reg::RDX,
-                Register::Reg::RCX,
-                Register::Reg::R8,
-                Register::Reg::R9
-            };
-
-            MachineOperand destination;
-            if (call->dst)
+                auto cond = ir.LowerTacExpr(cjump.cond);
+                ir.Emit(MachineInstruction{
+                    MachineOpcode::TEST,
+                    { cond}
+                    });
+                ir.Emit(MachineInstruction{
+                    ir.GetJumpOpcode(RelationalOp::Equal),
+                    { MachineOperand::Label(cjump.labelFalse) }
+                    });
+                
+            }
+            void operator()(const TACRelationalCJump& cjump)
             {
-                destination = LowerTacExpr(call->dst);
-            }
-            // Evaluate each argument into a temporary Virtual Register / Operand
-            std::vector<MachineOperand> evaluatedArgs;
-            for (const auto& arg : call->args) {
-                evaluatedArgs.push_back(LowerTacExpr(arg));
-            }
+                auto left = ir.LowerTacExpr(cjump.left);
+                auto right = ir.LowerTacExpr(cjump.right);
 
-            // Emit explicit MOV instructions to copy evaluated args into ABI registers
-            for (size_t i = 0; i < evaluatedArgs.size(); ++i) {
-                if (i < PARAM_REGS.size()) {
-                    MachineInstruction movArg;
-                    auto size = evaluatedArgs[i].size;
-                    movArg.opcode = MachineOpcode::MOV;
-                    movArg.operands = {
-                        MachineOperand::PhysicalReg(PARAM_REGS[i], size),
-                        evaluatedArgs[i]
-                    };
-                    ins.push_back(movArg);
+
+                MachineInstruction cmpInst;
+
+                bool is_right_zero = false;
+                if (auto im = std::get_if<ImmediateOperand>(&right.operand)) {
+                    is_right_zero = std::visit([](auto&& arg) -> bool { return arg == 0; }, im->value);
+                }
+
+                if (is_right_zero && (cjump.op == RelationalOp::Equal || cjump.op == RelationalOp::NotEqual)) {
+                    cmpInst.opcode = MachineOpcode::TEST;
+                    cmpInst.operands = { left, left };
                 }
                 else {
-                    // Push remaining args onto stack (for > 6 parameters)
-                   // MachineInstruction pushArg;
-                   // pushArg.opcode = MachineOpcode::PUSH;
-                    //pushArg.operands = { evaluatedArgs[i] };
-                    //ins.push_back(pushArg);
+                    cmpInst.opcode = MachineOpcode::CMP;
+                    cmpInst.operands = { left, right };
+                }
+                ir.Emit(cmpInst);
+
+                ir.Emit(MachineInstruction{
+                    ir.GetJumpOpcode(cjump.op), 
+                    { MachineOperand::Label(cjump.labelFalse) }
+                    });
+                
+            }
+            void operator()(const TACJump& jump) {
+                ir.Emit(MachineInstruction{
+                MachineOpcode::JMP,
+               { MachineOperand::Label(jump.label) }
+                    });
+            }
+            void operator()(const TACLabel& label) {
+                ir.Emit(MachineInstruction{
+                 MachineOpcode::LABEL,
+                { MachineOperand::Label(label.label) }
+                    });
+            }
+            void operator()(const TACCall& call) {
+                // System V AMD64 ABI argument registers
+                const std::array<Register::Reg, 6> PARAM_REGS = {
+                    Register::Reg::RDI,
+                    Register::Reg::RSI,
+                    Register::Reg::RDX,
+                    Register::Reg::RCX,
+                    Register::Reg::R8,
+                    Register::Reg::R9
+                };
+
+                MachineOperand destination;
+                if (call.dst)
+                {
+                    destination = ir.LowerTacExpr(call.dst);
+                }
+                // Evaluate each argument into a temporary Virtual Register / Operand
+                std::vector<MachineOperand> evaluatedArgs;
+                for (const auto& arg : call.args) {
+                    evaluatedArgs.push_back(ir.LowerTacExpr(arg));
+                }
+
+                // Emit explicit MOV instructions to copy evaluated args into ABI registers
+                for (size_t i = 0; i < evaluatedArgs.size(); ++i) {
+                    if (i < PARAM_REGS.size()) {
+                        MachineInstruction movArg;
+                        auto size = evaluatedArgs[i].size;
+                        movArg.opcode = MachineOpcode::MOV;
+                        movArg.operands = {
+                            MachineOperand::PhysicalReg(PARAM_REGS[i], size),
+                            evaluatedArgs[i]
+                        };
+                        ir.Emit(movArg);
+                    }
+                    else {
+                        // Push remaining args onto stack (for > 6 parameters)
+                       // MachineInstruction pushArg;
+                       // pushArg.opcode = MachineOpcode::PUSH;
+                        //pushArg.operands = { evaluatedArgs[i] };
+                        //ins.push_back(pushArg);
+                    }
+                }
+
+                MachineInstruction callCode;
+                callCode.opcode = MachineOpcode::CALL;
+                callCode.label = call.function;
+                ir.Emit(callCode);
+
+
+                if (call.dst) {
+                    //Move return value from RAX into call's destination register
+                    MachineInstruction movRet;
+                    movRet.opcode = MachineOpcode::MOV;
+                    movRet.operands = {
+                        destination,
+                        MachineOperand::PhysicalReg(Register::Reg::RAX, destination.size),
+                    };
+                    ir.Emit(movRet);
                 }
             }
+            void operator()(const TACReturn& ret) {
+                MachineInstruction code;
+                code.opcode = MachineOpcode::MOV;
+                if (ret.value) {
+                    auto valueOperand = ir.LowerTacExpr(ret.value);
+                    code.operands.push_back(MachineOperand::PhysicalReg(Register::Reg::RAX, GetDestinationSize(valueOperand.size)));
+                    code.operands.push_back(valueOperand);
+                    ir.Emit(code);
+                }
 
-            MachineInstruction callCode;
-            callCode.opcode = MachineOpcode::CALL;
-            callCode.label = call->function;
-            ins.push_back(callCode);
+                MachineInstruction returnCode;
+                returnCode.opcode = MachineOpcode::RET;
 
-            if (call->dst) {
-                //Move return value from RAX into call's destination register
-                MachineInstruction movRet;
-                movRet.opcode = MachineOpcode::MOV;
-                movRet.operands = {
-                    destination,
-                    MachineOperand::PhysicalReg(Register::Reg::RAX, destination.size),
-                };
-                ins.push_back(movRet);
+                ir.Emit(returnCode);
             }
+
+        }visitor{ *this };
+        std::visit(visitor, tacInstruction->expr);
+       
 }
-		else if (auto ret = std::get_if<TACReturn>(&tacInstruction->expr)) {
-			MachineInstruction code;
-			code.opcode = MachineOpcode::MOV;
-			if (ret->value) {
-                auto valueOperand = LowerTacExpr(ret->value);
-                code.operands.push_back(MachineOperand::PhysicalReg(Register::Reg::RAX, GetDestinationSize(valueOperand.size)));
-                code.operands.push_back(valueOperand);
-                ins.push_back(code);
-			}
-
-            MachineInstruction returnCode;
-            returnCode.opcode = MachineOpcode::RET;
-            ins.push_back(returnCode);
-
-		}
-    }
     std::optional<MachineInstruction> Move(const MachineOperand& dst, const MachineOperand& src, const Memory::OperandSize& size)
     {
         if (SameOperand(dst, src)) { return {}; }
@@ -541,6 +568,11 @@ private:
     }
 
 
+
+    void Emit(const MachineInstruction& instruction)
+    {
+        ins.push_back(instruction);
+    }
     bool IsMemory(const MachineOperand& op)
     {
         return op.kind == MachineOperand::Kind::Memory;
@@ -586,69 +618,77 @@ private:
         return false;
     }
 
-    MachineOpcode GetMachineOpcode(TokenType op, bool isSigned)
+    MachineOpcode GetMachineOpcode(const std::variant<BinaryOp, RelationalOp>& opVariant, bool isSigned)
     {
-        if (isSigned) {
-            switch (op)
-            {
-            case TokenType::equal_equal: return MachineOpcode::SETE;
-            case TokenType::not_equal:   return MachineOpcode::SETNE;
-            case TokenType::less:        return MachineOpcode::SETL;
-            case TokenType::less_equal:  return MachineOpcode::SETLE;
-            case TokenType::greater:     return MachineOpcode::SETG;
-            case TokenType::greater_equal:return MachineOpcode::SETGE;
-            case TokenType::plus:        return MachineOpcode::ADD;
-            case TokenType::sub:         return MachineOpcode::SUB;
-            case TokenType::star:        return MachineOpcode::IMUL;
-            case TokenType::div:         return MachineOpcode::IDIV;
+        return std::visit([isSigned](auto&& op) -> MachineOpcode {
+            using T = std::decay_t<decltype(op)>;
 
-
-            default:
-                throw std::runtime_error("Invalid comparison");
+            // Arithmetic & Bitwise Operations
+            if constexpr (std::is_same_v<T, BinaryOp>) {
+                switch (op) {
+                case BinaryOp::Add: return MachineOpcode::ADD;
+                case BinaryOp::Sub: return MachineOpcode::SUB;
+                case BinaryOp::Mul: return isSigned ? MachineOpcode::IMUL : MachineOpcode::MUL;
+                case BinaryOp::Div: return isSigned ? MachineOpcode::IDIV : MachineOpcode::DIV;
+                case BinaryOp::Mod: return isSigned ? MachineOpcode::IDIV : MachineOpcode::DIV; // x86 IDIV/DIV handles % via RDX
+                case BinaryOp::BitAnd: return MachineOpcode::AND;
+                case BinaryOp::BitOr:  return MachineOpcode::OR;
+                case BinaryOp::BitXor: return MachineOpcode::XOR;
+                case BinaryOp::Shl:    return MachineOpcode::SHL;
+                case BinaryOp::Shr:    return isSigned ? MachineOpcode::SAR : MachineOpcode::SHR;
+                }
             }
-        }
-        else
-        {
-            switch (op)
-            {
-            case TokenType::equal_equal: return MachineOpcode::SETE;
-            case TokenType::not_equal:   return MachineOpcode::SETNE;
-            case TokenType::less:        return MachineOpcode::SETB;
-            case TokenType::less_equal:  return MachineOpcode::SETBE;
-            case TokenType::greater:     return MachineOpcode::SETA;
-            case TokenType::greater_equal:return MachineOpcode::SETAE;
-            case TokenType::plus:        return MachineOpcode::ADD;
-            case TokenType::sub:         return MachineOpcode::SUB;
-            case TokenType::star:        return MachineOpcode::IMUL;
-            case TokenType::div:         return MachineOpcode::IDIV;
 
-
-            default:
-                throw std::runtime_error("Invalid comparison");
+            // Relational Operations (SETcc)
+            else if constexpr (std::is_same_v<T, RelationalOp>) {
+                if (isSigned) {
+                    switch (op) {
+                    case RelationalOp::Equal:        return MachineOpcode::SETE;
+                    case RelationalOp::NotEqual:     return MachineOpcode::SETNE;
+                    case RelationalOp::Less:         return MachineOpcode::SETL;
+                    case RelationalOp::LessEqual:    return MachineOpcode::SETLE;
+                    case RelationalOp::Greater:      return MachineOpcode::SETG;
+                    case RelationalOp::GreaterEqual: return MachineOpcode::SETGE;
+                    }
+                }
+                else {
+                    switch (op) {
+                    case RelationalOp::Equal:        return MachineOpcode::SETE;
+                    case RelationalOp::NotEqual:     return MachineOpcode::SETNE;
+                    case RelationalOp::Less:         return MachineOpcode::SETB;   // Below
+                    case RelationalOp::LessEqual:    return MachineOpcode::SETBE;  // Below or Equal
+                    case RelationalOp::Greater:      return MachineOpcode::SETA;   // Above
+                    case RelationalOp::GreaterEqual: return MachineOpcode::SETAE;  // Above or Equal
+                    }
+                }
             }
+
+            throw std::runtime_error("Invalid op variant in GetMachineOpcode");
+            }, opVariant);
+    }
+
+    MachineOpcode GetJumpOpcode(RelationalOp op, bool isSigned = true) {
+    if (isSigned) {
+        switch (op) {
+            case RelationalOp::Equal:        return MachineOpcode::JE;
+            case RelationalOp::NotEqual:     return MachineOpcode::JNE;
+            case RelationalOp::Less:         return MachineOpcode::JL;
+            case RelationalOp::LessEqual:    return MachineOpcode::JLE;
+            case RelationalOp::Greater:      return MachineOpcode::JG;
+            case RelationalOp::GreaterEqual: return MachineOpcode::JGE;
+        }
+    } else {
+        switch (op) {
+            case RelationalOp::Equal:        return MachineOpcode::JE;
+            case RelationalOp::NotEqual:     return MachineOpcode::JNE;
+            case RelationalOp::Less:         return MachineOpcode::JB;
+            case RelationalOp::LessEqual:    return MachineOpcode::JBE;
+            case RelationalOp::Greater:      return MachineOpcode::JA;
+            case RelationalOp::GreaterEqual: return MachineOpcode::JAE;
         }
     }
-
-    MachineOpcode GetJumpOpcode(TokenType op)
-    {
-
-        switch (op)
-        {
-        case TokenType::equal_equal: return MachineOpcode::JE;
-        case TokenType::not_equal:   return MachineOpcode::JNE;
-        case TokenType::less:        return MachineOpcode::JL;
-        case TokenType::less_equal:  return MachineOpcode::JLE;
-        case TokenType::greater:     return MachineOpcode::JG;
-        case TokenType::greater_equal:return MachineOpcode::JGE;
-
-        default:
-            throw std::runtime_error("Invalid comparison");
-        }
-    }
-    void Emit(MachineInstruction&& machIns)
-    {
-        ins.push_back(machIns);
-    }
+    return MachineOpcode::JNE;
+}
     
     Register::Reg SCRATCH = Register::Reg::R11;
     std::vector<MachineInstruction> ins;

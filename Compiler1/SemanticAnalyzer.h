@@ -19,13 +19,13 @@ private:
 		struct Visitor
 		{
 			SemanticAnalyzer* analyzer;
-
-			std::shared_ptr<Type> operator()(const NodeExprIntLit&) {
-				return Type::MakeInt();
+			NodeExpr& expr;
+			std::shared_ptr<Type> operator()(const NodeExprIntLit& ) {
+				return expr.type;
 			}
 
 			std::shared_ptr<Type> operator()(const NodeExprBoolLit&) {
-				return Type::MakeBool();
+				return expr.type;
 			}
 			std::shared_ptr<Type> operator()(NodeExprCall& call) {
 				auto funcSymbol = analyzer->symbols.LookupFunction(call.name);
@@ -108,7 +108,7 @@ private:
 					exit(EXIT_FAILURE);
 				}
 
-				if (expr.op.type == TokenType::_and || expr.op.type == TokenType::_or) {
+				if (expr.op == TokenType::_and || expr.op == TokenType::_or) {
 					if (!TypeInfo::IsScalar(leftType) || !TypeInfo::IsScalar(rightType)) {
 						std::cerr << "Type Error: Logical operators (&&, ||) require scalar operands.\n";
 						exit(EXIT_FAILURE);
@@ -232,7 +232,7 @@ private:
 			std::shared_ptr<Type> operator()(NodeExprRef& ref) { return std::make_shared<Type>(); }
 		};
 
-		Visitor visitor{ this };
+		Visitor visitor{ this, expr };
 		std::shared_ptr<Type> calculated_type = std::visit(visitor, expr.var);
 		expr.type = calculated_type;
 
@@ -259,6 +259,7 @@ private:
 					exprType = TypeInfo::MakePointerType(exprType->element);
 				}
 				if (!TypeInfo::SameType(exprType, declaredType)) {
+
 					std::cerr << "Type Error: Cannot assign expression of type "
 						<< TypeInfo::TypeToString(exprType)
 						<< " to variable '" << stat.name << "'\n";
@@ -283,25 +284,28 @@ private:
 			void operator()(const NodeStatementIf& _if)
 			{
 				auto condType = analyzer->AnalyzeExpression(*_if.condition);
-				if (*condType != Type{ Type::Kind::Bool }) {
+				if (!analyzer->EvaluatesToBool(*condType)) {
 					std::cerr << "Type Error: IF condition must be boolean.\n";
 					exit(EXIT_FAILURE);
 				}
 
-				analyzer->AnalyzeBlock(_if.thenBlock);
+				analyzer->AnalyzeStatement(*_if.thenBody);
 
-				if (_if.elseBlock.has_value()) {
-					analyzer->AnalyzeBlock(_if.elseBlock.value());
+				if (_if.elseBody) {
+					analyzer->AnalyzeStatement(*_if.elseBody);
 				}
 			}
 			void operator()(const NodeStatementWhile& _while)
 			{
 				auto exprType = analyzer->AnalyzeExpression(*_while.condition);
-				if (*exprType != Type{ Type::Kind::Bool }) {
-					std::cerr << "Type Error: Condition must return a bool.\n";
+				if (!analyzer->EvaluatesToBool(*exprType)) {
+					std::cerr << "Type Error: IF condition must be boolean.\n";
 					exit(EXIT_FAILURE);
 				}
-				analyzer->AnalyzeBlock(_while.block);
+				analyzer->AnalyzeStatement(*_while.body);
+				if (_while.update) {
+					analyzer->AnalyzeExpression(*_while.update);
+				}
 			}
 
 			void operator()(const NodeStatementBreak& _break)
@@ -422,6 +426,21 @@ private:
 		std::visit(visitor, statement.stat);
 	}
 
+
+	bool EvaluatesToBool(const Type& type)
+	{
+		switch (type.kind)
+		{
+		case Type::Kind::Pointer:
+			return true;
+		case Type::Kind::Int:
+			return true;
+		case Type::Kind::Bool:
+			return true;
+		default:
+			return false;
+		}
+	}
 
 	void FlattenInitList(NodeExpr& expr, std::vector<const NodeExpr*>& out_scalars, std::shared_ptr<Type> arrType) {
 		if (auto* initList = std::get_if<NodeExprInitList>(&expr.var)) {
@@ -567,6 +586,7 @@ private:
 
 	void AnalyzeProg(NodeProg& prog)
 	{
+		AnalyzeBlock(prog.global_space, false);
 		for (const auto& func : prog.functions)
 		{
 			std::vector<std::shared_ptr<Type>> paramTypes;

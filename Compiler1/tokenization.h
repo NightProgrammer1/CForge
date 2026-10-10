@@ -5,7 +5,7 @@
 #include <iostream>
 
 
-enum class TokenType
+enum class TokenType 
 {
     exit,
     _return,
@@ -70,7 +70,8 @@ enum class TokenType
 
 
     func,
-    ampersand
+    ampersand,
+    _NULL
 };
 struct Token
 {
@@ -174,6 +175,10 @@ public:
                 {
                     tokens.push_back({ TokenType::_continue, identifier,  lineCount });
 
+                }
+                else if (identifier == "NULL")
+                {
+                    tokens.push_back({ TokenType::_NULL, identifier,  lineCount });
                 }
                 else
                 {

@@ -236,7 +236,6 @@ private:
 
             return ud;
         }
-
         else if (auto bin = std::get_if<TACBinop>(&ins->expr))
         {
             UseDef ud;
@@ -252,10 +251,20 @@ private:
 
             return ud;
         }
-        else if (auto cjump = std::get_if<IRStatementCJump>(&ins->expr))
+        else if (auto cjump = std::get_if<TACCJump>(&ins->expr))
         {
             UseDef ud;
             if(auto u = CollectUses(cjump->cond))
+                ud.use.insert(*u);
+
+            return ud;
+        }
+        else if (auto rcjump = std::get_if<TACRelationalCJump>(&ins->expr))
+        {
+            UseDef ud;
+            if (auto u = CollectUses(rcjump->left))
+                ud.use.insert(*u);
+            if (auto u = CollectUses(rcjump->right))
                 ud.use.insert(*u);
 
             return ud;
@@ -281,7 +290,6 @@ private:
          
             return ud;
         }
-
         else if (auto load = std::get_if<TACLoad>(&ins->expr))
         {
             UseDef ud;

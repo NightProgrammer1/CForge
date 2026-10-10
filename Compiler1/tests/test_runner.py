@@ -6,19 +6,24 @@ COMPILER_BIN = "./build/Compiler1"
 TEST_DIR = "Compiler1/tests"
 
 TEST_EXPECTATIONS = {
-    "01_folding.cpp": 15,
-    "fold_associative.cpp": 30,
-    "variables.cpp": 30,
-    "while_loop_folding.cpp": 10,
-    "nested_loop_folding.cpp": 12,
-    "function_call_inlining.cpp": 4,
-    "for_loop.cpp": 5,
-    "for_loop_folding.cpp": 10,
-    "array_of_pointers.cpp": 42,
-    "array_parameter.cpp": 21,
-    "multi-dimensional_dereference.cpp": 35,
-    "pointer_substraction.cpp": 15,
-    "array_and_pointers.cpp": 188
+    "01_folding.c": 15,
+    "fold_associative.c": 30,
+    "variables.c": 30,
+    "while_loop_folding.c": 10,
+    "nested_loop_folding.c": 12,
+    "function_call_inlining.c": 4,
+    "for_loop.c": 5,
+    "for_loop_folding.c": 10,
+    "array_of_pointers.c": 42,
+    "array_parameter.c": 21,
+    "multi-dimensional_dereference.c": 35,
+    "pointer_substraction.c": 15,
+    "array_and_pointers.c": 188,
+    "if_statements.c": 0,
+    "test_for_empty_clauses.c": 10,
+    "single_integer_in_while_loop.c": 10,
+    "nested_loops_break_continue.c": 10,
+    "unary_not_single_variable.c": 10
 }
 
 GREEN = "\033[92m"
@@ -30,7 +35,7 @@ def run_suite():
         print(f"{RED}Error: Compiler binary '{COMPILER_BIN}' not found!{RESET}")
         sys.exit(1)
 
-    test_files = sorted([f for f in os.listdir(TEST_DIR) if f.endswith(".cpp")])
+    test_files = sorted([f for f in os.listdir(TEST_DIR) if f.endswith(".c")])
     passed = 0
     failed = 0
 

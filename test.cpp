@@ -1,13 +1,10 @@
 int main() {
-    int arr[3];
-    arr[0] = 100;
-    arr[1] = 200;
-    arr[2] = 300;
-
-    int* ptr = &arr[0];
-    ptr = ptr + 2;
-    *ptr = 400;
+    int x = 42;
+    int* p = &x;
 
 
-    return arr[0] + arr[1] + arr[2];
+    if (p) {
+        return 0;
+    }
+    return 1;
 }

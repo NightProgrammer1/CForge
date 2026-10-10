@@ -184,7 +184,6 @@ private:
 				<< FormatOperand(src) << "\n";
 			break;
 		}
-
 		case MachineOpcode::LEA:
 		{
 			const auto& dst = ins.operands[0];
@@ -301,9 +300,19 @@ private:
 			LabelJMP("jl", ins);
 			break;
 		}
+		case MachineOpcode::JE:
+		{
+			LabelJMP("je", ins);
+			break;
+		}
 		case MachineOpcode::JG:
 		{
 			LabelJMP("jg", ins);
+			break;
+		}
+		case MachineOpcode::JGE:{
+			LabelJMP("jge", ins);
+
 			break;
 		}
 		case MachineOpcode::JNE:
@@ -381,10 +390,18 @@ private:
 			_output << "    setae " << FormatOperand(dst) << "\n";
 			break;
 		}
+		case MachineOpcode::TEST:
+		{
+			assert(ins.operands.size() >= 1 && "Instruction is missing operands");
+			auto left = ins.operands[0];
+
+			_output << "    test " << FormatOperand(left) <<  ", " << FormatOperand(left) << "\n";
+			break;
+		}
 		case MachineOpcode::LABEL:
 		{
 			if (ins.operands.size() < 1) { return; }
-			EmitOperand(ins.operands[0]);
+			_output << "    "; EmitOperand(ins.operands[0]);
 			_output << ":\n";
 			break;
 		}
@@ -419,9 +436,6 @@ private:
 
 	void GenerateBlock(const MachineBasicBlock& block, const MachineFunction& fnContext)
 	{
-		if(!block.label.empty())
-			_output << "    " << block.label << ":\n";
-
 		for (const auto& ins : block.instructions)
 			GenerateAssembly(ins, fnContext);
 	}

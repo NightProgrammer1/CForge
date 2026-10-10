@@ -23,6 +23,137 @@ struct IRExprConst
 	}
 };
 
+// General Binary Operations for High/Mid IR & TAC
+//  Binary Arithmetic & Bitwise
+enum class BinaryOp : uint8_t {
+	Add, Sub, Mul, Div, Mod,
+	BitAnd, BitOr, BitXor,
+	Shl, Shr
+};
+
+// Unary Operations
+enum class UnaryOp : uint8_t {
+	Negate,     // -x
+	BitNot,     // ~x
+	LogicalNot, // !x
+	Deref,      // *ptr
+	AddressOf   // &var
+};
+
+// Relational / Comparison Operations
+enum class RelationalOp : uint8_t {
+	Equal,          // ==
+	NotEqual,       // !=
+	Less,           // <
+	LessEqual,      // <=
+	Greater,        // >
+	GreaterEqual    // >=
+};
+
+// Short-Circuit Logical Operations
+enum class LogicalOp : uint8_t {
+	And, // &&
+	Or   // ||
+};
+
+// Compound Assignment Operations
+enum class CompoundAssignmentOp : uint8_t {
+	AddEqual,    // +=
+	SubEqual,    // -=
+	MulEqual,    // *=
+	DivEqual,    // /=
+	ModEqual,    // %=
+	ShlEqual,    // <<=
+	ShrEqual,    // >>=
+	AndEqual,    // &=
+	OrEqual,     // |=
+	XorEqual     // ^=
+};
+constexpr BinaryOp TokenToBinaryOp(TokenType token)
+{
+	switch (token) {
+	case TokenType::plus:          return BinaryOp::Add;
+	case TokenType::sub:		   return BinaryOp::Sub;
+	case TokenType::star:          return BinaryOp::Mul;
+	case TokenType::div:           return BinaryOp::Div;
+	default:                      assert(false && "Not a Binary token");
+	}
+}
+constexpr RelationalOp TokenToRelationalOp(const TokenType& op) {
+	switch (op) {
+	case TokenType::equal_equal:   return RelationalOp::Equal;
+	case TokenType::not_equal:	   return RelationalOp::NotEqual;
+	case TokenType::less:          return RelationalOp::Less;
+	case TokenType::less_equal:    return RelationalOp::LessEqual;
+	case TokenType::greater:       return RelationalOp::Greater;
+	case TokenType::greater_equal: return RelationalOp::GreaterEqual;
+	default:                      assert(false && "Not a relational token");
+	}
+}
+constexpr LogicalOp TokenToLogicalOp(const TokenType& op) {
+	switch (op) {
+	case TokenType::_and:   return LogicalOp::And;
+	case TokenType::_or:   return LogicalOp::Or;
+	default:                      assert(false && "Not a logical operator token");
+	}
+}
+constexpr std::variant<BinaryOp, RelationalOp, LogicalOp> ConvertToIROp(const TokenType& op) {
+	switch (op) {
+		// --- Relational Operators ---
+	case TokenType::equal_equal:   return RelationalOp::Equal;
+	case TokenType::not_equal:     return RelationalOp::NotEqual;
+	case TokenType::less:          return RelationalOp::Less;
+	case TokenType::less_equal:    return RelationalOp::LessEqual;
+	case TokenType::greater:       return RelationalOp::Greater;
+	case TokenType::greater_equal: return RelationalOp::GreaterEqual;
+
+		// --- Short-Circuit Logical Operators ---
+	case TokenType::_and:          return LogicalOp::And; // &&
+	case TokenType::_or:           return LogicalOp::Or;  // ||
+
+		// --- Binary Arithmetic / Bitwise ---
+	case TokenType::plus:          return BinaryOp::Add;
+	case TokenType::sub:           return BinaryOp::Sub;
+	case TokenType::star:          return BinaryOp::Mul;
+	case TokenType::div:           return BinaryOp::Div;
+
+	default:
+		throw std::runtime_error("Unsupported comparison or logical token type");
+	}
+}
+constexpr bool IsRelationOp(const TokenType& op) 
+{
+	return (op >= TokenType::less) && (op <= TokenType::not_equal);
+}
+constexpr RelationalOp Invert(RelationalOp op) {
+	switch (op) {
+	case RelationalOp::Equal:        return RelationalOp::NotEqual;
+	case RelationalOp::NotEqual:     return RelationalOp::Equal;
+	case RelationalOp::Less:         return RelationalOp::GreaterEqual;
+	case RelationalOp::LessEqual:    return RelationalOp::Greater;
+	case RelationalOp::Greater:      return RelationalOp::LessEqual;
+	case RelationalOp::GreaterEqual: return RelationalOp::Less;
+	}
+	return op;
+}
+
+constexpr BinaryOp ToBinaryOp(CompoundAssignmentOp op) {
+	switch (op) {
+	case CompoundAssignmentOp::AddEqual: return BinaryOp::Add;
+	case CompoundAssignmentOp::SubEqual: return BinaryOp::Sub;
+	case CompoundAssignmentOp::MulEqual: return BinaryOp::Mul;
+	case CompoundAssignmentOp::DivEqual: return BinaryOp::Div;
+	case CompoundAssignmentOp::ModEqual: return BinaryOp::Mod;
+	case CompoundAssignmentOp::ShlEqual: return BinaryOp::Shl;
+	case CompoundAssignmentOp::ShrEqual: return BinaryOp::Shr;
+	case CompoundAssignmentOp::AndEqual: return BinaryOp::BitAnd;
+	case CompoundAssignmentOp::OrEqual:  return BinaryOp::BitOr;
+	case CompoundAssignmentOp::XorEqual: return BinaryOp::BitXor;
+	}
+	return BinaryOp::Add;
+}
+
+
 
 struct IRExprName
 {
@@ -40,13 +171,30 @@ struct IRExprStackObject
 	Register::StackObject id;
 };
 
-struct IRExprBinop
-{
-	TokenType op;
-
+struct IRExprBinop {
+	std::variant<BinaryOp, RelationalOp, LogicalOp> op;
 	IRExpr* left = nullptr;
 	IRExpr* right = nullptr;
 
+	bool IsRelational() const {
+		return std::holds_alternative<RelationalOp>(op);
+	}
+
+	bool IsArithmetic() const {
+		return std::holds_alternative<BinaryOp>(op);
+	}
+
+	bool IsLogical() const {
+		return std::holds_alternative<LogicalOp>(op);
+	}
+
+	RelationalOp GetRelationalOp() const {
+		return std::get<RelationalOp>(op);
+	}
+
+	BinaryOp GetBinaryOp() const {
+		return std::get<BinaryOp>(op);
+	}
 };
 
 struct IRExprMem
@@ -59,7 +207,6 @@ struct IRExprDereference
 	IRExpr* address;
 
 };
-
 
 struct IRExprCall
 {
@@ -115,11 +262,12 @@ struct IRStatementJump
 	std::string label;
 };
 
+
 struct IRStatementCJump
 {
 	IRExpr* cond;
-	std::string labelTrue;
 	std::string labelFalse;
+
 };
 
 struct IRStatementLabel
@@ -156,7 +304,7 @@ struct TACBinop
 {
 	IRExpr* dst;
 
-	TokenType op;
+	std::variant<BinaryOp, RelationalOp> op;
 
 	IRExpr* left;
 	IRExpr* right;
@@ -195,8 +343,34 @@ struct TACCall
 	std::vector<IRExpr*> args;
 };
 
-// Variant type representing any TAC/IR instruction variant. Placed before
-typedef std::variant<TACBinop, TACMove, TACMoveMem, TACLoad, TACAddressOf, IRStatementCJump, IRStatementJump, IRStatementLabel, TACCall, TACReturn> AnyInstuction;
+
+struct TACLabel
+{
+	std::string label;
+};
+
+struct TACJump
+{
+	std::string label;
+};
+
+// Jump to the target label if false
+struct TACCJump
+{
+	IRExpr* cond;
+	std::string labelFalse;
+
+};
+
+struct TACRelationalCJump
+{
+	RelationalOp op;
+	IRExpr* left;
+	IRExpr* right;
+	std::string labelFalse;
+};
+// Variant type representing any TAC/IR instruction variant.
+typedef std::variant<TACBinop, TACMove, TACMoveMem, TACLoad, TACAddressOf, TACRelationalCJump, TACCJump, TACJump, TACLabel, TACCall, TACReturn> AnyInstuction;
 
 struct Instruction
 {

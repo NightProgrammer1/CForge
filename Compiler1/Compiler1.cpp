@@ -1,6 +1,20 @@
 ﻿// Compiler1.cpp : Defines the entry point for the application.
 //
+
 #include "Compiler1.h"
+#include "tokenization.h"
+#include "Generator.h"
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <algorithm>
+#include "SemanticAnalyzer.h"
+#include "IRLowering.h"
+#include "ThreeAdressCode.h"
+#include "BasicBlockBuilder.h"
+#include "LivenessAnalysis.h"
+#include "PreMachineInstruction.h"
+#include "PostMachineInstruction.h"
 
 
 
