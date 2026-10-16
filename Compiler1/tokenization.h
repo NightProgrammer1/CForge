@@ -3,6 +3,7 @@
 #include <vector>
 #include <optional>
 #include <iostream>
+#include "fmt/format.h"
 
 
 enum class TokenType 
@@ -69,15 +70,26 @@ enum class TokenType
 
 
 
-    func,
-    ampersand,
-    _NULL
+	func,
+	ampersand,
+	_NULL
 };
+
+namespace fmt {
+template <>
+struct formatter<TokenType> : formatter<int> {
+  template <typename FormatContext>
+  auto format(TokenType t, FormatContext& ctx) const {
+	return formatter<int>::format(static_cast<int>(t), ctx);
+  }
+};
+}
+
 struct Token
 {
 	TokenType type;
 	std::string value;
-    int line;
+	int line;
 
 };
 
@@ -87,15 +99,22 @@ struct Token
 class Tokenizer
 {
 public:
-	Tokenizer(const std::string& source) : _src(source)
-	{
-
-	}
-
-    std::vector<Token> tokenize(const std::string& content)
+    static std::vector<Token> tokenize(const std::string& content)
     {
         std::vector<Token> tokens;
         int lineCount = 1;
+        size_t _currentIndex = 0;
+        auto PeekChar = [&content, &_currentIndex](int i = 0) -> std::optional<char> {
+            if (_currentIndex + i >= content.length())
+            {
+                return {};
+            }
+            return content.at(_currentIndex + i);
+            };
+
+        auto GetChar = [&content, &_currentIndex]() {
+            return content.at(_currentIndex++);
+            };
         while (PeekChar().has_value())
         {
             char c = PeekChar().value();
@@ -302,10 +321,10 @@ public:
                 }
                 else if (PeekChar() && PeekChar().value() == '/')
                 {
-                    auto next_line = _src.find('\n', _currentIndex);
+                    auto next_line = content.find('\n', _currentIndex);
                     _currentIndex += (next_line - _currentIndex); // skips the line
 
-                    auto value = _src[_currentIndex];
+                    auto value = content[_currentIndex];
 
 
                     continue;
@@ -408,27 +427,48 @@ public:
         _currentIndex = 0;
         return tokens;
     }
-
-
-private:
-
-    void Advance() { _currentIndex++;}
-    std::optional<char> PeekChar(int i = 0) const
+    static std::string ToString(TokenType type)
     {
-        if (_currentIndex + i >= _src.length())
-        {
-            return {};
-        }
-        return _src.at(_currentIndex + i);
-
+		switch (type)
+		{
+		case TokenType::exit: return "exit";
+		case TokenType::_return: return "return";
+		case TokenType::_identifier: return "identifier";
+		case TokenType::comment: return "comment";
+		case TokenType::semicolon: return "semicolon";
+		case TokenType::comma: return "comma";
+		case TokenType::int_literal: return "int_literal";
+		case TokenType::open_paren: return "open_paren";
+		case TokenType::close_paren: return "close_paren";
+		case TokenType::equal: return "equal";
+		case TokenType::plus_equal: return "+=";
+		case TokenType::sub_equal: return "-=";
+		case TokenType::star_equal: return "*=";
+		case TokenType::div_equal: return "/=";
+		case TokenType::increment: return "++";
+		case TokenType::pre_increment: return "++(x)";
+		case TokenType::post_increment: return "(x)++";
+		case TokenType::decrease: return "--";
+		case TokenType::pre_decrement: return "--(x)";
+		case TokenType::post_decrement: return "(x)--";
+		case TokenType::ampersand: return "&";
+		case TokenType::plus: return "+";
+		case TokenType::sub: return "-";
+		case TokenType::star: return "*";
+		case TokenType::div: return "/";
+		case TokenType::less: return "<";
+		case TokenType::greater: return ">";
+		case TokenType::equal_equal: return "==";
+		case TokenType::greater_equal: return ">=";
+		case TokenType::less_equal: return "<=";
+		case TokenType::not_equal: return "!=";
+		case TokenType::negate: return "!";
+		case TokenType::_or: return "||";
+		case TokenType::_and: return "&&";
+        case TokenType::_not: return "!";
+		default:
+			return "unknown";
+		}
     }
 
-    char GetChar()
-    {
-        return _src.at(_currentIndex++);
-    }
-	std::string _src;
-
-    
-    int _currentIndex = 0;
 };

@@ -46,7 +46,7 @@ def run_suite():
     for file_name in test_files:
         base_name = os.path.splitext(file_name)[0]
         c_file_path = os.path.join(TEST_DIR, file_name)
-        asm_out_path = os.path.join(TEST_DIR, f"{base_name}.s")
+        asm_out_path = os.path.join(TEST_DIR, f"{base_name}.asm")
         obj_out_path = os.path.join(TEST_DIR, f"{base_name}.o")
         bin_out_path = os.path.join(TEST_DIR, f"{base_name}.out")
 

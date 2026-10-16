@@ -321,23 +321,25 @@ enum class ExprContext {
     RValue,
     LValue
 };
+
+typedef std::variant<
+    NodeExprIntLit,
+    NodeExprIdent, // 1
+    NodeExprBinary, // 2
+    NodeExprBoolLit, // 3
+    NodeExprCompare, // 4
+    NodeExprVoid,    // 5
+    NodeExprUnary,   // 6
+    NodeExprCall,    // 7
+    NodeExprAssignment, // 8
+    NodeExprInitList, // 9
+    NodeExprArrayAccess, // 10
+    NodeExprRef
+> NodeExpression;
 struct NodeExpr
 {
 
-    std::variant<
-        NodeExprIntLit,
-        NodeExprIdent, // 1
-        NodeExprBinary, // 2
-        NodeExprBoolLit, // 3
-        NodeExprCompare, // 4
-        NodeExprVoid,    // 5
-        NodeExprUnary,   // 6
-        NodeExprCall,    // 7
-        NodeExprAssignment, // 8
-        NodeExprInitList, // 9
-        NodeExprArrayAccess, // 10
-        NodeExprRef
-    > var;
+    NodeExpression var;
     std::shared_ptr<Type> type = std::make_shared<Type>(Type::Kind::Void);
 };
 

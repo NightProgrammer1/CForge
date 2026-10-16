@@ -1,7 +1,7 @@
 #pragma once
 #include "types.h"
 #include <memory_resource>
-
+#include "fmt/core.h"
 class Parser
 {
 public:
@@ -543,7 +543,18 @@ private:
         auto expr = ParseExpression();
         if (!expr) return nullptr;
 
-        Consume(TokenType::semicolon); // Semicolon consumed ONLY for full statements!
+        Consume(TokenType::semicolon); 
+
+        if (std::holds_alternative<NodeExprAssignment>(expr->var)) 
+        {
+            auto& assignExpr = std::get<NodeExprAssignment>(expr->var);
+
+            NodeStatementAssignment stmtAssign;
+            stmtAssign.target = assignExpr.target;
+            stmtAssign.expr = assignExpr.expr;
+
+            return _allocator->new_object<NodeStatement>(stmtAssign);
+        }
 
         NodeStatementExpr expr_stmt{ expr };
         return _allocator->new_object<NodeStatement>(expr_stmt);
@@ -640,7 +651,7 @@ private:
     NodeStatement* ParseWhile()
     {
         NodeStatementWhile _while;
-        if (auto node_expr = ParseBoolean())
+        if (auto node_expr = ParseExpression())
         {
             _while.condition = std::move(node_expr);
         }
@@ -1090,6 +1101,8 @@ private:
 
         return base_type;
     }
+
+   
 	std::vector<Token> _tokens;
 
     std::pmr::polymorphic_allocator<NodeExpr>* _allocator;

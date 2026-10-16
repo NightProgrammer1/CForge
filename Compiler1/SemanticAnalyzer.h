@@ -20,14 +20,14 @@ private:
 		{
 			SemanticAnalyzer* analyzer;
 			NodeExpr& expr;
-			std::shared_ptr<Type> operator()(const NodeExprIntLit& ) {
+			std::shared_ptr<Type> operator()(const NodeExprIntLit& ) const {
 				return expr.type;
 			}
 
-			std::shared_ptr<Type> operator()(const NodeExprBoolLit&) {
+			std::shared_ptr<Type> operator()(const NodeExprBoolLit&) const {
 				return expr.type;
 			}
-			std::shared_ptr<Type> operator()(NodeExprCall& call) {
+			std::shared_ptr<Type> operator()(NodeExprCall& call) const {
 				auto funcSymbol = analyzer->symbols.LookupFunction(call.name);
 
 				if (!funcSymbol->hasBody) {
@@ -65,7 +65,7 @@ private:
 				return funcSymbol->returnType;
 			
 			}
-			std::shared_ptr<Type> operator()(NodeExprAssignment& assign)
+			std::shared_ptr<Type> operator()(NodeExprAssignment& assign) const
 			{
 				auto exprType = analyzer->AnalyzeExpression(*assign.expr);
 				auto targetType = analyzer->AnalyzeExpression(*assign.target);
@@ -79,7 +79,7 @@ private:
 				return assign.target->type;
 				
 			}
-			std::shared_ptr<Type> operator()(NodeExprIdent& expr) {
+			std::shared_ptr<Type> operator()(NodeExprIdent& expr) const  {
 				auto symbol = analyzer->symbols.LookupVariable(expr.name);
 
 				if (!symbol)
@@ -93,12 +93,12 @@ private:
 				expr.name = symbol->name;
 				return symbol->type;
 			}
-			std::shared_ptr<Type> operator()(const NodeExprVoid&)
+			std::shared_ptr<Type> operator()(const NodeExprVoid&) const
 			{
 				return std::make_shared<Type>( Type::Kind::Void );
 			}
 
-			std::shared_ptr<Type> operator()(const NodeExprCompare& expr)
+			std::shared_ptr<Type> operator()(const NodeExprCompare& expr) const
 			{
 				auto leftType = analyzer->AnalyzeExpression(*expr.left);
 				auto rightType = analyzer->AnalyzeExpression(*expr.right);
@@ -127,7 +127,7 @@ private:
 				// Comparisons and logical operations ALWAYS evaluate to Bool 
 				return Type::MakeBool();
 			}
-			std::shared_ptr<Type> operator()(NodeExprBinary& expr)
+			std::shared_ptr<Type> operator()(NodeExprBinary& expr) const
 			{
 				auto leftType = analyzer->AnalyzeExpression(*expr.left);
 				auto rightType = analyzer->AnalyzeExpression(*expr.right);
@@ -150,7 +150,7 @@ private:
 				exit(EXIT_FAILURE);
 				
 			}
-			std::shared_ptr<Type> operator()(NodeExprUnary& unary)
+			std::shared_ptr<Type> operator()(NodeExprUnary& unary) const
 			{
 				auto child_type = analyzer->AnalyzeExpression(*unary.expr);
 
@@ -195,11 +195,11 @@ private:
 				}
 				return child_type;
 			}
-			std::shared_ptr<Type> operator()(const NodeExprInitList& list)
+			std::shared_ptr<Type> operator()(const NodeExprInitList& list) const
 			{
 				return std::make_shared<Type>();
 			}
-			std::shared_ptr<Type> operator()(NodeExprArrayAccess& access)
+			std::shared_ptr<Type> operator()(NodeExprArrayAccess& access) const
 			{
 				//  Resolve base variable type
 				auto currentType = analyzer->AnalyzeExpression(*access.array);
@@ -229,7 +229,7 @@ private:
 
 				return currentType;
 			}
-			std::shared_ptr<Type> operator()(NodeExprRef& ref) { return std::make_shared<Type>(); }
+			std::shared_ptr<Type> operator()(NodeExprRef& ref) const { return std::make_shared<Type>(); }
 		};
 
 		Visitor visitor{ this, expr };
