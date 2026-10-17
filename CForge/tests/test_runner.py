@@ -2,8 +2,8 @@ import os
 import subprocess
 import sys
 
-COMPILER_BIN = "./build/Compiler1"
-TEST_DIR = "Compiler1/tests"
+COMPILER_BIN = "./build/CForge/cf"
+TEST_DIR = "CForge/tests"
 
 TEST_EXPECTATIONS = {
     "01_folding.c": 15,

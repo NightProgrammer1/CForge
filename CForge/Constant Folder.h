@@ -75,7 +75,7 @@ private:
 				std::string varName = ident->name;
 				if (auto currentVal = GetVariable(varName))
 				{
-					switch (unary->op.type){
+					switch (unary->op){
 						case TokenType::post_increment:
 							currentVal->data = std::visit([](auto& val) -> ConstValue::Scalar { return ConstValue::Scalar{ val + 1 }; }, currentVal->get_scalar());
 							break;
@@ -118,7 +118,7 @@ private:
 		{
 			NodeExpr* val = Fold(assign->expr);
 			if (auto value = ToConstValue(expr)) {
-				SetVariableValue(assign->name->name, ConstValue{ *value });
+				SetVariableValue(assign->name, ConstValue{ *value });
 			}
 			else {
 				InvalidateVariable(assign->name->name);
@@ -226,13 +226,11 @@ private:
 
 				if (auto value = std::get_if<NodeExprIntLit>(&_if.condition->var)) {
 					if (value->value) {
-						analyzer->AnalyzeBlock(_if.thenBlock);
-						return NodeStatement{ _if.thenBlock };
+						return analyzer->AnalyzeStatement(*_if.thenBody);
 					}
 					else {
-						if (_if.elseBlock.has_value()) {
-							analyzer->AnalyzeBlock(_if.elseBlock.value());
-							return NodeStatement{ _if.elseBlock.value() };
+						if (_if.elseBody) {
+							return analyzer->AnalyzeStatement(*_if.elseBody);
 						}
 						else {
 							return std::nullopt;
@@ -240,9 +238,9 @@ private:
 					}
 				}
 
-				analyzer->AnalyzeBlock(_if.thenBlock);
-				if (_if.elseBlock.has_value()) {
-					analyzer->AnalyzeBlock(_if.elseBlock.value());
+				*_if.thenBody = *analyzer->AnalyzeStatement(*_if.thenBody);
+				if (_if.elseBody.) {
+					analyzer->AnalyzeBlock(_if.elseBody);
 				}
 
 				return NodeStatement{ _if };
@@ -355,7 +353,7 @@ private:
 
 					for (auto value : arr.initializer->values)
 					{
-						auto const_val = analyzer->ToConstValue(value, arr.name->Type, element_dims);
+						auto const_val = analyzer->ToConstValue(value, arr.element_type, element_dims);
 						if (const_val.has_value()) {
 							data.push_back(const_val.value());
 						}
@@ -364,7 +362,7 @@ private:
 					}
 				}
 
-				analyzer->GenerateVariable(arr.name->name, ConstValue{ data });
+				analyzer->GenerateVariable(arr.name, ConstValue{ data });
 				return NodeStatement{ arr };
 			}
 
@@ -374,7 +372,7 @@ private:
 		return std::visit(visitor, statement.stat);
 	}
 
-	std::optional<ConstValue> Compute(Token op, ConstValue lhs, ConstValue rhs)
+	std::optional<ConstValue> Compute(TokenType op, ConstValue lhs, ConstValue rhs)
 	{
 		if (!lhs.is_scalar() || !rhs.is_scalar()) {
 			return std::nullopt;
@@ -384,7 +382,7 @@ private:
 			auto l_promoted = static_cast<CommonType>(L);
 			auto r_promoted = static_cast<CommonType>(R);
 
-			switch (op.type) {
+			switch (op) {
 			case TokenType::plus:
 				return ConstValue{ ConstValue::Scalar{ l_promoted + r_promoted } };
 			case TokenType::sub:
@@ -420,11 +418,11 @@ private:
 		{
 			if (leftInd->name == rightInd->name)
 			{
-				if (bin->op.type == TokenType::sub)
+				if (bin->op == TokenType::sub)
 				{
 					return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 0 });
 				}
-				if (bin->op.type == TokenType::div)
+				if (bin->op == TokenType::div)
 				{
 					auto value = GetVariable(leftInd->name);
 					//if (value && *value != 0) {
@@ -450,23 +448,23 @@ private:
 		}
 		else if (rightLit)
 		{
-			if (bin->op.type == TokenType::plus || bin->op.type == TokenType::sub)
+			if (bin->op == TokenType::plus || bin->op == TokenType::sub)
 			{
 				//if (rightLit->value == 0) return foldedLeft;
 			}
-			else if (bin->op.type == TokenType::star)
+			else if (bin->op == TokenType::star)
 			{
 				//if (rightLit->value == 0) return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 0 });
 				//if (rightLit->value == 1) return foldedLeft;
 			}
-			else if (bin->op.type == TokenType::div)
+			else if (bin->op == TokenType::div)
 			{
 				//if (leftLit->value == 1) return foldedRight;
 			}
 		}
 		else if (leftLit)
 		{
-			if (bin->op.type == TokenType::star)
+			if (bin->op == TokenType::star)
 			{
 				//if (leftLit->value == 0) return _allocator->new_object<NodeExpr>(NodeExprIntLit{ 0 });
 				//if (leftLit->value == 1) return foldedRight;
@@ -485,9 +483,9 @@ private:
 		if (lhs && lhs->is_scalar())
 		{
 			auto result = std::visit([&](auto L) -> NodeExpr* {
-				if (comp->op.type == TokenType::_and && L == 0)
+				if (comp->op == TokenType::_and && L == 0)
 					return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ false });
-				else if (comp->op.type == TokenType::_or && L != 0)
+				else if (comp->op == TokenType::_or && L != 0)
 					return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ true });
 				return nullptr;
 			}, lhs->get_scalar());
@@ -500,9 +498,9 @@ private:
 		if (rhs && rhs->is_scalar())
 		{
 			auto result = std::visit([&](auto R) -> NodeExpr* {
-				if (comp->op.type == TokenType::_and && R == 0)
+				if (comp->op == TokenType::_and && R == 0)
 					return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ false });
-				else if (comp->op.type == TokenType::_or && R != 0)
+				else if (comp->op == TokenType::_or && R != 0)
 					return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ true });
 				return nullptr;
 				}, rhs->get_scalar());
@@ -582,6 +580,7 @@ private:
 
 
 	
+	//Transfrom NodeExpr to ConstValue
 	std::optional<ConstValue> ToConstValue(const NodeExpr* expr)
 	{
 		if (auto val = std::get_if<NodeExprIntLit>(&expr->var))

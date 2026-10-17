@@ -8,28 +8,27 @@ main:
     push rbp
     mov rbp, rsp
     sub rsp, 16
-    mov dword [rbp - 4], 0
-    mov dword [rbp - 8], 99
-    mov dword [rbp - 12], 0
+    mov dword [rbp - 4], 10
+    mov dword [rbp - 8], 0
     mov r11d, dword [rbp - 4]
-    test r11d, r11d
-    jne if_end_2
+    cmp r11d, 5
+    jne if_false_1
     if_true_0:
-    mov eax, dword [rbp - 12]
-    add eax, 10
-    mov dword [rbp - 12], eax
+    mov dword [rbp - 8], 1
     jmp if_end_2
-    if_end_2:
-    mov r11d, dword [rbp - 8]
-    test r11d, r11d
-    jne if_end_5
+    if_false_1:
+    mov r11d, dword [rbp - 4]
+    cmp r11d, 10
+    jne if_false_4
     if_true_3:
-    mov eax, dword [rbp - 12]
-    add eax, 100
-    mov dword [rbp - 12], eax
+    mov dword [rbp - 8], 2
     jmp if_end_5
+    if_false_4:
+    mov dword [rbp - 8], 3
     if_end_5:
-    mov eax, dword [rbp - 12]
+    if_end_2:
+    mov eax, dword [rbp - 8]
+    sub eax, 2
     mov rsp, rbp
     pop rbp
     ret

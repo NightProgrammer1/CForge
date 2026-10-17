@@ -9,7 +9,7 @@ struct Symbol;
 
 struct Declarator;
 struct ConstValue {
-    using Scalar = std::variant<int, size_t, double, float, bool>;
+    using Scalar = std::variant<int, int64_t, size_t, double, float, bool>;
 
     // A ConstValue is either a Scalar primitive OR an array/list of ConstValues which are compile time constant
     std::variant<Scalar, std::vector<ConstValue>> data;
