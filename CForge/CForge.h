@@ -8,6 +8,9 @@
 #include "Generator.h"
 #include <fstream>
 #include <sstream>
+#include <string>
+#include <array>
+#include <cstdio>
 #include <vector>
 #include <algorithm>
 #include "SemanticAnalyzer.h"
@@ -19,3 +22,7 @@
 #include "PostMachineInstruction.h"
 //#include "Constant Folder.h"
 #include "debug.h"
+
+
+#define NASM_FORMAT "elf64"
+

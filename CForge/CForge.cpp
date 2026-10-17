@@ -1,9 +1,29 @@
 ﻿
-
 #include "CForge.h"
 
 
 
+std::string executeCommand(const std::string& cmd, int& exitCode) {
+    std::string output = "";
+    std::array<char, 128> buffer;
+
+    std::string fullCmd = cmd + " 2>&1";
+
+    FILE* pipe = popen(fullCmd.c_str(), "r");
+    if (!pipe) {
+        exitCode = -1;
+        return "Error: Failed to create pipe.";
+    }
+
+    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
+        output += buffer.data();
+    }
+
+    int status = pclose(pipe);
+    exitCode = WEXITSTATUS(status);
+
+    return output;
+}
 int Compile(int argc, char* argv[], NodeProg& exitNode, std::string_view assembly)
 {
     bool print_assembly = false;
@@ -29,7 +49,7 @@ int Compile(int argc, char* argv[], NodeProg& exitNode, std::string_view assembl
 
     std::string outputPath;
     if (!output_file.empty()) {
-        outputPath = output_file; // e.g. user supplied file.s or file.asm directly
+        outputPath = output_file;
         if (outputPath.find('.') == std::string::npos) {
             outputPath += ".asm";
         }
@@ -42,13 +62,43 @@ int Compile(int argc, char* argv[], NodeProg& exitNode, std::string_view assembl
         outputPath = "output.asm";
     }
 
-    std::ofstream out(outputPath);
-    if (!out.is_open()) {
-        std::cerr << "Error: Could not open output file: " << outputPath << "\n";
-        exit(EXIT_FAILURE);
+    {
+        std::ofstream out(outputPath);
+        if (!out.is_open()) {
+            return -1;
+        }
+        out << assembly;
     }
-    out << assembly;
-    out.close();
+
+    size_t out_lastdot = outputPath.find_last_of('.');
+    std::string objPath = (out_lastdot == std::string::npos) ? outputPath + ".o" : outputPath.substr(0, out_lastdot) + ".o";
+
+    std::string nasmCommand = "nasm -f " + std::string(NASM_FORMAT) + " " + outputPath + " -o " + objPath;
+    int nasmResult = 0;
+    std::string nasmOutput = executeCommand(nasmCommand, nasmResult);
+
+    if (nasmResult != 0) {
+        std::remove(outputPath.c_str());
+        return nasmResult;
+    }
+
+    size_t obj_lastdot = objPath.find_last_of('.');
+    std::string exePath = (obj_lastdot == std::string::npos) ? objPath + "out" : objPath.substr(0, obj_lastdot) + ".out";
+
+    std::string linkCommand = "ld " + objPath + " -o " + exePath;
+    int linkResult = 0;
+    std::string linkOutput = executeCommand(linkCommand, linkResult);
+
+    if (linkResult != 0) {
+        // Clean up intermediate files if linking fails
+        std::remove(outputPath.c_str());
+        std::remove(objPath.c_str());
+        return linkResult;
+    }
+
+   
+    std::remove(outputPath.c_str()); // Deletes the .asm file
+    std::remove(objPath.c_str());    // Deletes the .o object file
 
     return 0;
 }
@@ -86,6 +136,11 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
+    // --- SEMANTIC ANALYSIS ---
+    SemanticAnalyzer analyzer(exitNode.value(), alloc);
+    analyzer.Analyze();
+
+
     // --- CHECK FOR --print-ast (Raw, Unoptimized AST) ---
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--print-ast") {
@@ -94,11 +149,6 @@ int main(int argc, char* argv[])
             return 0; // Exit early if only printing AST
         }
     }
-
-    // --- SEMANTIC ANALYSIS ---
-    SemanticAnalyzer analyzer(exitNode.value(), alloc);
-    analyzer.Analyze();
-
     // --- CONSTANT FOLDER / OPTIMIZATIONS ---
    // auto folder = ConstantFolder(exitNode.value(), alloc);
     //folder.FoldProgram();
@@ -132,6 +182,7 @@ int main(int argc, char* argv[])
 
     X86Generator gen(machIns);
     auto assembly = gen.GenerateProgram();
+
 
     return Compile(argc, argv, exitNode.value(), assembly);
 }
