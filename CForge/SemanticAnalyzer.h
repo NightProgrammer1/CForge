@@ -5,7 +5,7 @@
 class SemanticAnalyzer
 {
 public:
-	SemanticAnalyzer(NodeProg& program, std::pmr::polymorphic_allocator<NodeExpr>& allocator) : ast(program), _allocator(allocator) {}
+	SemanticAnalyzer(NodeProg& program, std::pmr::polymorphic_allocator<char>& allocator) : ast(program), _allocator(allocator) {}
 	void Analyze()
 	{
 		symbols.EnterScope(); // Global scope
@@ -229,7 +229,7 @@ private:
 
 				return currentType;
 			}
-			std::shared_ptr<Type> operator()(NodeExprRef& ref) const { return std::make_shared<Type>(); }
+			
 		};
 
 		Visitor visitor{ this, expr };
@@ -413,9 +413,11 @@ private:
 					exit(EXIT_FAILURE);
 				}
 
-				auto symbol = std::make_shared<Symbol>(arr.name, arr.element_type, arr.id);
 
 				arr.id = ValueID::Create();
+
+				auto symbol = std::make_shared<Symbol>(arr.name, arr.element_type, arr.id);
+
 				arr.symbol = symbol;
 				analyzer->ValidateArrayInitializer(arr);
 				analyzer->symbols.DeclareVariable(symbol);
@@ -665,6 +667,6 @@ private:
 	std::optional<std::string> currentFunctionName;
 	std::shared_ptr<Type> currentFunctionReturnType;
 	NodeProg& ast;
-	std::pmr::polymorphic_allocator<NodeExpr>& _allocator;
+	std::pmr::polymorphic_allocator<char>& _allocator;
 	bool currentFunctionHasReturn = false;
 };

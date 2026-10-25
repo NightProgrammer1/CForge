@@ -9,14 +9,37 @@ struct Symbol;
 
 struct Declarator;
 struct ConstValue {
-    using Scalar = std::variant<int, int64_t, size_t, double, float, bool>;
+
+    struct Pointer {
+        size_t variable_id;
+        std::vector<size_t> indices; // Tracks paths
+        int64_t element_offset = 0;
+    };
+    using Scalar = std::variant<int, size_t, double, float, bool>;
 
     // A ConstValue is either a Scalar primitive OR an array/list of ConstValues which are compile time constant
-    std::variant<Scalar, std::vector<ConstValue>> data;
+    std::variant<Scalar, std::vector<ConstValue>, Pointer> data;
 
     bool is_scalar() const { return std::holds_alternative<Scalar>(data); }
     bool is_array() const { return std::holds_alternative<std::vector<ConstValue>>(data); }
 
+    void set_value_at_indices(const std::vector<size_t>& indices, const ConstValue& value, size_t start = 0)
+    {
+        auto arr = get_array();
+        if (!arr) return;
+        if (start >= indices.size()) return;
+
+        size_t idx = indices[start];
+        if (idx >= arr->size()) return;
+
+        if (start == indices.size() - 1) {
+            // We've reached the target depth, assign the value
+            (*arr)[idx] = value;
+        }
+        else {
+            (*arr)[idx].set_value_at_indices(indices, value, start + 1);
+        }
+    }
     static ConstValue* get_value_from_array(ConstValue* array, const std::vector<size_t>& indices, size_t start = 0)
     {
 
@@ -24,17 +47,44 @@ struct ConstValue {
         {
             return array;
         }
+        else if (array->is_pointer())
+        {
+            return array;
+        }
         else if (array->is_array())
         {
-            if (start >= indices.size()) return nullptr;
+
+            if (start >= indices.size() || indices[start] >= array->size()) {
+				std::cerr << "Compile-Time Error: Array index " << indices[start]
+					<< " is out of bounds for array of size " << array->size() << "\n";
+				std::exit(EXIT_FAILURE);
+            }
             auto& main_elem = (*array->get_array())[indices[start]];
             return get_value_from_array(&main_elem, indices, start + 1);
         }
 
         return nullptr;
     }
+    //Creates a default array of elemCount 
+    static ConstValue create_array(size_t elemCount)
+    {
+        std::vector<ConstValue> elements(elemCount);
+        return ConstValue{ elements };
+    }
     const Scalar& get_scalar() const { return std::get<Scalar>(data); }
     std::vector<ConstValue>* get_array() { return std::get_if<std::vector<ConstValue>>(&data); }
+
+    size_t size() {
+        if (is_array()) {
+            return get_array()->size();
+        }
+
+        return 1;
+    }
+    bool is_pointer() const { return std::holds_alternative<Pointer>(data); }
+
+    const Pointer* get_pointer() const { return std::get_if<Pointer>(&data); }
+    Pointer* get_pointer() { return std::get_if<Pointer>(&data); }
 };
 
 //Type information
@@ -219,6 +269,12 @@ struct DeclaratorModifier
     std::unique_ptr<DeclaratorModifier> child = nullptr;
 };
 
+    //--------------------------------------------------------------------------------------------------------------//
+    //                                                                                                              //
+    //                                                      Declarator                                              //
+    //                                                                                                              //
+    //--------------------------------------------------------------------------------------------------------------//
+
 struct Declarator
 {
     std::string name;
@@ -240,9 +296,7 @@ struct Identifier {
     std::string name;
     SourceLocation location; // Tracks line/col for compiler error messages
 };
-struct NodeExprRef {
-    ConstValue* ptr; // Direct pointer to live ConstValue in symbol table
-};
+
 struct NodeFunction;
 
 struct NodeExprBinary
@@ -333,8 +387,7 @@ typedef std::variant<
     NodeExprCall,    // 7
     NodeExprAssignment, // 8
     NodeExprInitList, // 9
-    NodeExprArrayAccess, // 10
-    NodeExprRef
+    NodeExprArrayAccess // 10
 > NodeExpression;
 struct NodeExpr
 {
@@ -711,11 +764,7 @@ namespace TypeInfo {
         }
     }
 
-    //--------------------------------------------------------------------------------------------------------------//
-    //                                                                                                              //
-    //                                                      Declarator                                              //
-    //                                                                                                              //
-    //--------------------------------------------------------------------------------------------------------------//
+    
 
     const std::string& GetDeclaratorName(const Declarator& decl)
     {
@@ -723,6 +772,8 @@ namespace TypeInfo {
     }
 
 }
+
+
 class ValueID
 {
 public:
@@ -730,7 +781,8 @@ public:
     {
         return counter++;
     }
-
+    static constexpr int INVALID_ID = -1;
+    
 private:
     inline static size_t counter = 0;
 };

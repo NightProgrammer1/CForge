@@ -30,7 +30,7 @@ GREEN = "\033[92m"
 RED = "\033[91m"
 RESET = "\033[0m"
 
-def run_suite():
+def run_suite(compiler_args):
     if not os.path.exists(COMPILER_BIN):
         print(f"{RED}Error: Compiler binary '{COMPILER_BIN}' not found!{RESET}")
         sys.exit(1)
@@ -41,6 +41,8 @@ def run_suite():
 
     print("==================================================")
     print("   RUNNING COMPILER TEST SUITE (ASM & LINK)")
+    if compiler_args:
+        print(f"   Flags passed: {' '.join(compiler_args)}")
     print("==================================================\n")
 
     for file_name in test_files:
@@ -49,20 +51,22 @@ def run_suite():
         bin_out_path = os.path.join(TEST_DIR, f"{base_name}.out")
         
         try:
-            comp_res = subprocess.run([COMPILER_BIN, c_file_path], capture_output=True, text=True)
+            # FIXED: Build the full command with binary, input, output flag, and extra flags
+            cmd = [COMPILER_BIN, c_file_path, "-o", bin_out_path] + compiler_args
+            comp_res = subprocess.run(cmd, capture_output=True, text=True)
+            
             if comp_res.returncode != 0:
                 print(f"[{RED}FAIL{RESET}] {file_name} -> Compiler failed!")
                 print(f"       stderr: {comp_res.stderr.strip()}")
                 failed += 1
                 continue
             
-            exec_res = subprocess.run([f"./{bin_out_path}"])
+            exec_res = subprocess.run([f"./{bin_out_path}"], capture_output=True, text=True)
             actual_exit = exec_res.returncode
             expected_exit = TEST_EXPECTATIONS.get(file_name, 0)
 
             if os.path.exists(bin_out_path):
                 os.remove(bin_out_path)
-           
 
             if actual_exit == expected_exit:
                 print(f"[{GREEN}PASS{RESET}] {file_name:<25} (Exit code: {actual_exit})")
@@ -83,4 +87,6 @@ def run_suite():
         sys.exit(1)
 
 if __name__ == "__main__":
-    run_suite()
+    # Directly pass all command-line arguments to the compiler suite
+    compiler_args = sys.argv[1:]
+    run_suite(compiler_args)

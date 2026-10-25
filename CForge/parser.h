@@ -5,7 +5,7 @@
 class Parser
 {
 public:
-	Parser(const std::vector<Token>& tokens, std::pmr::polymorphic_allocator<NodeExpr>& allocator) : _tokens(tokens), _allocator(&allocator)
+	Parser(const std::vector<Token>& tokens, std::pmr::polymorphic_allocator<char>& allocator) : _tokens(tokens), _allocator(&allocator)
 	{
 
 	}
@@ -1105,6 +1105,6 @@ private:
    
 	std::vector<Token> _tokens;
 
-    std::pmr::polymorphic_allocator<NodeExpr>* _allocator;
+    std::pmr::polymorphic_allocator<char>* _allocator;
     int _currentIndex = 0;
 };

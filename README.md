@@ -14,11 +14,6 @@
 
 ---
 
-<center>
-  <span style="color: #374151; background-color: #f3f4f6; font-size: 1.4em; font-weight: bold; padding: 6px 14px; border-radius: 6px; border: 1px solid #e5e7eb;">
-    CForge Currently Supports
-  </span>
-</center>
 
 <br>
 

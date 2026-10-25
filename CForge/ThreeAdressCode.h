@@ -9,7 +9,7 @@ class TACLowering
 {
 public:
 
-	TACLowering(IRProgram& mir, std::pmr::polymorphic_allocator<Instruction>& allocator) : ir(mir), _allocator(allocator) {}
+	TACLowering(IRProgram& mir, std::pmr::polymorphic_allocator<char>& allocator) : ir(mir), _allocator(allocator) {}
 
 
 	TACProgram Lower()
@@ -352,7 +352,7 @@ private:
 	{
 		return label + std::to_string(label_counter++);
 	}
-	std::pmr::polymorphic_allocator<Instruction>& _allocator;
+	std::pmr::polymorphic_allocator<char>& _allocator;
 	IRProgram& ir;
 
 	TAC tac;

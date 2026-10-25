@@ -1,4 +1,30 @@
 #include "fmt/format.h"
+#include <chrono>
+
+class ScopedTimer {
+	std::string_view name;
+	std::chrono::high_resolution_clock::time_point start;
+    bool enabled;
+public:
+	ScopedTimer(std::string_view n, bool en = true) : name(n), start(std::chrono::high_resolution_clock::now()), enabled(en) {}
+	~ScopedTimer() {
+        if (!enabled) return;
+		auto end = std::chrono::high_resolution_clock::now();
+		auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        fmt::println("[Profile] {}: {} ms", name, duration);
+	}
+};
+
+
+
+//                                                                                                                                        //
+//                                                                                                                                        //
+//                                                                                                                                        //
+//-------------------------------------------------------------------PRINTER--------------------------------------------------------------//
+//                                                                                                                                        //
+//                                                                                                                                        //
+//                                                                                                                                        //
+
 void PrintIndent(int indent) {
     for (int i = 0; i < indent; ++i) {
         fmt::print("  ");
@@ -108,9 +134,7 @@ void PrintNode(const NodeExpr* expr, const std::string& prefix, bool is_last) {
                 PrintNode(access.indices[i], next_prefix, i == access.indices.size() - 1);
             }
         }
-        void operator()(const NodeExprRef&) const {
-            PrintBranch(prefix, is_last, fmt::format("{}RefExpr{}{}", COL_EXPR, COL_RESET, type_suffix));
-        }
+        
     } visitor{ prefix, is_last, type_suffix };
 
     std::visit(visitor, expr->var);

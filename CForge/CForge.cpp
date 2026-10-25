@@ -1,188 +1,224 @@
-﻿
-#include "CForge.h"
-
-
+﻿#include "CForge.h"
+#include <cstdio>
+#include <array>
+#include <fstream>
+#include <sstream>
 
 std::string executeCommand(const std::string& cmd, int& exitCode) {
-    std::string output = "";
-    std::array<char, 128> buffer;
+	std::string output = "";
+	std::array<char, 128> buffer;
 
-    std::string fullCmd = cmd + " 2>&1";
+	std::string fullCmd = cmd + " 2>&1";
 
-    FILE* pipe = popen(fullCmd.c_str(), "r");
-    if (!pipe) {
-        exitCode = -1;
-        return "Error: Failed to create pipe.";
-    }
+	FILE* pipe = popen(fullCmd.c_str(), "r");
+	if (!pipe) {
+		exitCode = -1;
+		return "Error: Failed to create pipe.";
+	}
 
-    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-        output += buffer.data();
-    }
+	while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
+		output += buffer.data();
+	}
 
-    int status = pclose(pipe);
-    exitCode = WEXITSTATUS(status);
+	int status = pclose(pipe);
+	exitCode = WEXITSTATUS(status);
 
-    return output;
+	return output;
 }
-int Compile(int argc, char* argv[], NodeProg& exitNode, std::string_view assembly)
+
+int Compile(int argc, char* argv[], std::string_view assembly)
 {
-    bool print_assembly = false;
-    std::string input_file = "";
-    std::string output_file = "";
+	bool print_assembly = false;
+	std::string input_file;
+	std::string custom_output_file;
 
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-        if (arg == "--print-assembly") {
-            print_assembly = true;
-        }
-        else if (arg == "-o" && i + 1 < argc) {
-            output_file = argv[++i];
-        }
-        else if (input_file.empty() && arg[0] != '-') {
-            input_file = arg;
-        }
-    }
+	for (int i = 1; i < argc; ++i) {
+		std::string arg = argv[i];
+		if (arg == "--print-assembly") {
+			print_assembly = true;
+		}
+		else if (arg == "-o" && i + 1 < argc) {
+			custom_output_file = argv[++i];
+		}
+		else if (input_file.empty() && arg[0] != '-') {
+			input_file = arg;
+		}
+	}
 
-    if (print_assembly) {
-        std::cout << assembly << std::endl;
-    }
+	std::string baseName = "output";
+	if (!input_file.empty()) {
+		size_t lastdot = input_file.find_last_of('.');
+		baseName = (lastdot == std::string::npos) ? input_file : input_file.substr(0, lastdot);
+	}
 
-    std::string outputPath;
-    if (!output_file.empty()) {
-        outputPath = output_file;
-        if (outputPath.find('.') == std::string::npos) {
-            outputPath += ".asm";
-        }
-    }
-    else if (!input_file.empty()) {
-        size_t lastdot = input_file.find_last_of('.');
-        outputPath = (lastdot == std::string::npos) ? input_file + ".asm" : input_file.substr(0, lastdot) + ".asm";
-    }
-    else {
-        outputPath = "output.asm";
-    }
+	std::string outputPath = baseName + ".asm";
+	std::string objPath = baseName + ".o";
 
-    {
-        std::ofstream out(outputPath);
-        if (!out.is_open()) {
-            return -1;
-        }
-        out << assembly;
-    }
+	std::string exePath;
+	if (!custom_output_file.empty()) {
+		exePath = custom_output_file;
+	}
+	else {
+		exePath = baseName + ".out";
+	}
 
-    size_t out_lastdot = outputPath.find_last_of('.');
-    std::string objPath = (out_lastdot == std::string::npos) ? outputPath + ".o" : outputPath.substr(0, out_lastdot) + ".o";
+	if (print_assembly) {
+		std::cout << assembly << std::endl;
+		std::ofstream out(outputPath);
+		out << assembly;
+		return 0;
+	}
 
-    std::string nasmCommand = "nasm -f " + std::string(NASM_FORMAT) + " " + outputPath + " -o " + objPath;
-    int nasmResult = 0;
-    std::string nasmOutput = executeCommand(nasmCommand, nasmResult);
+	{
+		std::ofstream out(outputPath);
+		if (!out.is_open()) {
+			return -1;
+		}
+		out << assembly;
+	}
 
-    if (nasmResult != 0) {
-        std::remove(outputPath.c_str());
-        return nasmResult;
-    }
+	std::string nasmCommand = "nasm -f " + std::string(NASM_FORMAT) + " " + outputPath + " -o " + objPath;
+	int nasmResult = 0;
+	std::string nasmOutput = executeCommand(nasmCommand, nasmResult);
 
-    size_t obj_lastdot = objPath.find_last_of('.');
-    std::string exePath = (obj_lastdot == std::string::npos) ? objPath + "out" : objPath.substr(0, obj_lastdot) + ".out";
+	if (nasmResult != 0) {
+		std::remove(outputPath.c_str());
+		return nasmResult;
+	}
 
-    std::string linkCommand = "ld " + objPath + " -o " + exePath;
-    int linkResult = 0;
-    std::string linkOutput = executeCommand(linkCommand, linkResult);
+	std::string linkCommand = "ld " + objPath + " -o " + exePath;
+	int linkResult = 0;
+	std::string linkOutput = executeCommand(linkCommand, linkResult);
 
-    if (linkResult != 0) {
-        // Clean up intermediate files if linking fails
-        std::remove(outputPath.c_str());
-        std::remove(objPath.c_str());
-        return linkResult;
-    }
+	if (linkResult != 0) {
+		std::remove(outputPath.c_str());
+		std::remove(objPath.c_str());
+		return linkResult;
+	}
 
-   
-    std::remove(outputPath.c_str()); // Deletes the .asm file
-    std::remove(objPath.c_str());    // Deletes the .o object file
+	std::remove(outputPath.c_str());
+	std::remove(objPath.c_str());
 
-    return 0;
+	return 0;
 }
-
 int main(int argc, char* argv[])
 {
-    if (argc < 2) {
-        std::cerr << "Usage: cf" << " <source_file> [-o output_file] [--print-ast] [--print-assembly]\n";
-        exit(EXIT_FAILURE);
-    }
+	if (argc < 2) {
+		std::cerr << "CForge C Compiler\n\n"
+			<< "Usage: cf <source_file> [options]\n\n"
+			<< "Options:\n"
+			<< "  -o <file>          Specify the output binary filename\n"
+			<< "  -g, --debug        Enable compiler performance profiling & timers\n"
+			<< "  --print-ast        Print the Abstract Syntax Tree (AST) and exit\n"
+			<< "  --print-assembly   Print the generated x86_64 assembly code\n"
+			<< "  -O0                Disable optimization passes\n";
+		exit(EXIT_FAILURE);
+	}
 
-    std::string inputPath = argv[1];
+	bool enable_profiling = false;
+	bool enable_optimization = false;
 
-    std::ifstream input(inputPath);
-    if (!input.is_open()) {
-        std::cerr << "Error: Could not open input file: " << inputPath << "\n";
-        exit(EXIT_FAILURE);
-    }
+	// Scan arguments for debug/optimization flags
+	for (int i = 1; i < argc; ++i) {
+		std::string arg = argv[i];
+		if (arg == "-g" || arg == "--debug") {
+			enable_profiling = true;
+		}
+		else if (arg == "-O0") {
+			enable_optimization = false; 
+		}
+	}
 
-    std::stringstream buffer;
-    buffer << input.rdbuf();
-    input.close();
+	ScopedTimer totalTimer("Total Compilation", enable_profiling);
 
-    std::string content = buffer.str();
-    std::vector<Token> tokens = Tokenizer::tokenize(content);
+	std::string inputPath = argv[1];
 
-    std::pmr::monotonic_buffer_resource arena((1024 * 1024) * 4);
-    std::pmr::polymorphic_allocator<NodeExpr> alloc(&arena);
-    std::pmr::polymorphic_allocator<Instruction> allocTAC(&arena);
+	std::ifstream input(inputPath);
+	if (!input.is_open()) {
+		std::cerr << "Error: Could not open input file: " << inputPath << "\n";
+		exit(EXIT_FAILURE);
+	}
 
-    Parser parser(tokens, alloc);
-    auto exitNode = parser.ParseProgram();
-    if (!exitNode.has_value()) {
-        std::cerr << "Error: Parsing failed.\n";
-        exit(EXIT_FAILURE);
-    }
+	std::stringstream buffer;
+	buffer << input.rdbuf();
+	input.close();
 
-    // --- SEMANTIC ANALYSIS ---
-    SemanticAnalyzer analyzer(exitNode.value(), alloc);
-    analyzer.Analyze();
+	std::string content = buffer.str();
+	std::vector<Token> tokens = Tokenizer::tokenize(content);
 
+	std::pmr::monotonic_buffer_resource arena((1024 * 1024) * 4); // 4 MB
+	std::pmr::polymorphic_allocator<char> genericAlloc(&arena);
 
-    // --- CHECK FOR --print-ast (Raw, Unoptimized AST) ---
-    for (int i = 1; i < argc; ++i) {
-        if (std::string(argv[i]) == "--print-ast") {
-            PrintAST(exitNode.value());
-            std::cout << std::endl;
-            return 0; // Exit early if only printing AST
-        }
-    }
-    // --- CONSTANT FOLDER / OPTIMIZATIONS ---
-   // auto folder = ConstantFolder(exitNode.value(), alloc);
-    //folder.FoldProgram();
+	Parser parser(tokens, genericAlloc);
+	auto exitNode = parser.ParseProgram();
+	if (!exitNode.has_value()) {
+		std::cerr << "Error: Parsing failed.\n";
+		exit(EXIT_FAILURE);
+	}
 
-    // --- IR LOWERING & CODEGEN ---
-    IRLowering lowerer(exitNode.value(), alloc);
-    auto ir = lowerer.Lower();
+	// --- SEMANTIC ANALYSIS ---
+	{
+		ScopedTimer t("Semantic Analysis", enable_profiling);
+		SemanticAnalyzer analyzer(exitNode.value(), genericAlloc);
+		analyzer.Analyze();
+	}
 
-    TACLowering tac(ir, allocTAC);
-    auto t = tac.Lower();
+	// --- CHECK FOR --print-ast ---
+	for (int i = 1; i < argc; ++i) {
+		if (std::string(argv[i]) == "--print-ast") {
+			PrintAST(exitNode.value());
+			std::cout << std::endl;
+			return 0;
+		}
+	}
 
-    BasicBlockBuilder builder(t, arena);
-    auto cfg = builder.Create();
+	MachineProgram machIns;
+	{
+		ScopedTimer t("Constant Folding & Lowering", enable_profiling);
 
-    PreMachineIR machine(cfg);
-    auto machIns = machine.Lower();
+		// --- CONSTANT FOLDER / OPTIMIZATIONS ---
+		if (enable_optimization) {
+			auto folder = ConstantFolder(exitNode.value(), genericAlloc);
+			folder.FoldProgram();
+		}
 
-    LivenessAnalysis analysis;
-    for (auto& function : machIns.functions)
-    {
-        RegisterAllocator reg;
-        auto liveInt = analysis.GetLiveIntervals(function);
-        auto data = reg.AllocateReg(liveInt, function);
+		// --- IR LOWERING & CODEGEN ---
+		IRLowering lowerer(exitNode.value(), genericAlloc);
+		auto ir = lowerer.Lower();
 
-        function.stack_size = data.first;
-        function.usedCalleeSaved = data.second;
-    }
+		TACLowering tac(ir, genericAlloc);
+		auto tacInstructions = tac.Lower();
 
-    PostMachineIR postMachIns(machIns);
-    postMachIns.Lower();
+		BasicBlockBuilder builder(tacInstructions, arena);
+		auto cfg = builder.Create();
 
-    X86Generator gen(machIns);
-    auto assembly = gen.GenerateProgram();
+		PreMachineIR machine(cfg);
+		machIns = machine.Lower();
+	}
 
+	{
+		ScopedTimer t("Liveness Analysis & Register Allocation", enable_profiling);
+		LivenessAnalysis analysis;
+		for (auto& function : machIns.functions)
+		{
+			RegisterAllocator reg;
+			auto liveInt = analysis.GetLiveIntervals(function);
+			auto data = reg.AllocateReg(liveInt, function);
 
-    return Compile(argc, argv, exitNode.value(), assembly);
+			function.stack_size = data.first;
+			function.usedCalleeSaved = data.second;
+		}
+
+		PostMachineIR postMachIns(machIns);
+		postMachIns.Lower();
+	}
+
+	std::string assembly;
+	{
+		ScopedTimer t("Assembly Generation", enable_profiling);
+		X86Generator gen(machIns);
+		assembly = gen.GenerateProgram();
+	}
+
+	return Compile(argc, argv, assembly);
 }

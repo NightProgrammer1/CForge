@@ -6,7 +6,7 @@ class IRLowering
 {
 public:
 
-	IRLowering(const NodeProg& program, std::pmr::polymorphic_allocator<NodeExpr>& allocator) : ast(program), _allocator(allocator){}
+	IRLowering(const NodeProg& program, std::pmr::polymorphic_allocator<char>& allocator) : ast(program), _allocator(allocator){}
 
 
 	IRProgram Lower()
@@ -451,10 +451,7 @@ private:
 
 				return base;
 			}
-			IRExpr* operator()(const NodeExprRef& ref)
-			{
-				return nullptr;
-			}
+			
 		} visitor{ this, expr, ctx  };
 
 		return std::visit(visitor, expr.var);
@@ -755,7 +752,7 @@ private:
 	const NodeProg& ast;
 	Mir ir;
 	std::vector<IRStatement*> statements;
-	std::pmr::polymorphic_allocator<NodeExpr>& _allocator;
+	std::pmr::polymorphic_allocator<char>& _allocator;
 	int temp_counter = 0;
 	int label_counter = 0;
 

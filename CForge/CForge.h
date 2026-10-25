@@ -20,7 +20,7 @@
 #include "LivenessAnalysis.h"
 #include "PreMachineInstruction.h"
 #include "PostMachineInstruction.h"
-//#include "Constant Folder.h"
+#include "ConstantFolder.h"
 #include "debug.h"
 
 

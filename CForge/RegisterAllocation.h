@@ -14,6 +14,8 @@ public:
 	std::pair<size_t, std::set<Register::Reg>> AllocateReg(std::vector<std::pair<Register::VReg, LiveInterval>> liveIntervals, MachineFunction& ins)
 	{
 		using namespace Register;
+
+		
 		std::sort(
 			liveIntervals.begin(),
 			liveIntervals.end(),
@@ -84,7 +86,6 @@ public:
 		}
 		*/
 
-
 		return std::make_pair(ins.stack_size, std::move(usedCalleeSavedRegs) );
 	}
 	
@@ -92,6 +93,7 @@ private:
 
 	void AllocateReg(const Register::VReg& vreg, const LiveInterval& interval,std::vector<std::pair<Register::Reg, LiveInterval>>& active) {
 
+		
 		if (interval.crossesCall) {
 			if (auto reg = TryGetFreeCalleeSavedReg(active)) {
 				usedCalleeSavedRegs.insert(*reg); 
@@ -166,7 +168,7 @@ private:
 	}
 	bool IsRegisterActive(
 		Register::Reg reg,
-		const std::vector<std::pair<Register::Reg, LiveInterval>>& active)
+		const std::vector<std::pair<Register::Reg, LiveInterval>>& active) const
 	{
 		for (const auto& [reg2, interval] : active)
 		{
@@ -188,7 +190,7 @@ private:
 		return std::nullopt;
 	}
 
-	std::optional<Register::Reg> TryGetFreeCalleeSavedReg(const std::vector<std::pair<Register::Reg, LiveInterval>>& active)
+	std::optional<Register::Reg> TryGetFreeCalleeSavedReg(const std::vector<std::pair<Register::Reg, LiveInterval>>& active) const
 	{
 		for (Register::Reg reg : Register::calleSavedRegisters)
 		{
@@ -222,7 +224,8 @@ private:
 
 		return offset;
 	}
-	size_t AlignUp(size_t value, size_t alignment)
+	
+	size_t AlignUp(size_t value, size_t alignment) const
 	{
 		if (alignment == 0) return value;
 		return (value + alignment - 1) & ~(alignment - 1);

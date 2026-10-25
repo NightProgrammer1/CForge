@@ -1,0 +1,15 @@
+{
+  "version": "0.2.1",
+  "configurations": [
+    {
+      "type": "default",
+      "project": "CMakeLists.txt",
+      "projectTarget": "cf",
+      "name": "CForge: Print Assembly",
+      "args": [
+        "test.cpp",
+        "--print-assembly"
+      ]
+    }
+  ]
+}
