@@ -116,7 +116,7 @@ int main(int argc, char* argv[])
 	}
 
 	bool enable_profiling = false;
-	bool enable_optimization = false;
+	bool enable_optimization = true;
 
 	// Scan arguments for debug/optimization flags
 	for (int i = 1; i < argc; ++i) {

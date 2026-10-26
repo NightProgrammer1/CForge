@@ -1,5 +1,5 @@
 <div align="center"> <h1 style="font-size: 2.5em; font-weight: bold; margin-bottom: 8px;">
-    🛠️ CForge
+     CForge
   </h1>
 
 [![C++ Compiler CI & Test Suite](https://github.com/NightProgrammer1/C-compiler/actions/workflows/test.yml/badge.svg)](https://github.com/NightProgrammer1/C-compiler/actions/workflows/test.yml)
@@ -14,10 +14,9 @@
 
 ---
 
-
 <br>
 
-### 📋 Supported Language Subset
+### Supported Language Subset
 
 * **Data Types & Memory Model**
 
@@ -43,9 +42,13 @@
 
 ---
 
-### 💻 Source Code Example
+### Source Code Example
 
-![Source Code](Images/source_code.png)
+
+
+![Code-ShowCase.png](C:\Users\james\source\repos\CForge\Images\Code-ShowCase.png)
+
+
 
 ### AST Representation
 
@@ -66,4 +69,9 @@ cf input.c -o custom_output
 cf input.c --print-ast
 # Print the generated x86-64 assembly during compilation
 cf input.c --print-assembly
+# Print the debug information (compile speed, ect)
+cf input.c -g || cf input.c --debug
+# Disable all Optimizations
+cf input.c -O0
+
 ```

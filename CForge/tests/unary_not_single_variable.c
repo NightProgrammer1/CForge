@@ -4,11 +4,11 @@ int main() {
     int result = 0;
 
     if (!zero_val) {
-        result = result + 10; // Should execute (!0 is true)
+        result = result + 10; 
     }
 
     if (!pos_val) {
-        result = result + 100; // Should NOT execute (!99 is false)
+        result = result + 100; 
     }
 
     // Expected result: 10.

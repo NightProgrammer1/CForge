@@ -2,28 +2,37 @@
 #include <chrono>
 
 class ScopedTimer {
-	std::string_view name;
-	std::chrono::high_resolution_clock::time_point start;
-    bool enabled;
 public:
-	ScopedTimer(std::string_view n, bool en = true) : name(n), start(std::chrono::high_resolution_clock::now()), enabled(en) {}
-	~ScopedTimer() {
-        if (!enabled) return;
-		auto end = std::chrono::high_resolution_clock::now();
-		auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        fmt::println("[Profile] {}: {} ms", name, duration);
+	ScopedTimer(const std::string& name, bool enabled)
+		: name_(name), enabled_(enabled), start_(std::chrono::high_resolution_clock::now()) {
 	}
+
+	~ScopedTimer() {
+		if (!enabled_) return;
+
+		auto end = std::chrono::high_resolution_clock::now();
+		auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start_).count();
+		double duration_ms = static_cast<double>(duration_us) / 1000.0;
+
+		
+		fmt::print("[Profile] {}: {:.3f} ms ({} µs)\n", name_, duration_ms, duration_us);
+	}
+
+private:
+	std::string name_;
+	bool enabled_;
+	std::chrono::time_point<std::chrono::high_resolution_clock> start_;
 };
 
 
 
-//                                                                                                                                        //
-//                                                                                                                                        //
-//                                                                                                                                        //
-//-------------------------------------------------------------------PRINTER--------------------------------------------------------------//
-//                                                                                                                                        //
-//                                                                                                                                        //
-//                                                                                                                                        //
+//                                                                                                                                            //
+//                                                                                                                                            //
+//                                                                                                                                            //
+//  -------------------------------------------------------------------PRINTER--------------------------------------------------------------  //
+//                                                                                                                                            //
+//                                                                                                                                            //
+//                                                                                                                                            //
 
 void PrintIndent(int indent) {
     for (int i = 0; i < indent; ++i) {
@@ -32,12 +41,12 @@ void PrintIndent(int indent) {
 }
 // --- ANSI Color Constants ---
 constexpr const char* COL_RESET = "\033[0m";
-constexpr const char* COL_TREE = "\033[90m"; // Dim Gray
-constexpr const char* COL_EXPR = "\033[36m"; // Cyan (for Expressions)
-constexpr const char* COL_STMT = "\e[0;31m"; // Bright Blue (for Statements)
-constexpr const char* COL_LIT = "\033[32m"; // Green (for Literals/Values)
-constexpr const char* COL_OP = "\033[33m"; // Yellow (for Operators)
-constexpr const char* COL_TYPE = "\033[35m"; // Magenta (for Types)
+constexpr const char* COL_TREE = "\033[90m"; 
+constexpr const char* COL_EXPR = "\x1b[38;5;153m"; 
+constexpr const char* COL_STMT = "\x1b[38;5;223m"; 
+constexpr const char* COL_LIT = "\033[32m"; 
+constexpr const char* COL_OP = "\033[33m"; 
+constexpr const char* COL_TYPE = "\033[35m"; 
 
 void PrintBranch(const std::string& prefix, bool is_last, const std::string& text) {
     std::string branch = is_last ? "└── " : "├── ";
