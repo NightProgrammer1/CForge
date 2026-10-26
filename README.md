@@ -44,15 +44,17 @@
 
 ### Source Code Example
 
-
-
-![Code-ShowCase.png](C:\Users\james\source\repos\CForge\Images\Code-ShowCase.png)
-
-
+![Code-ShowCase.png](Images\Code-ShowCase.png)
 
 ### AST Representation
 
 ![AST Representation](Images/ast_representation.png)
+
+---
+
+### Compilers Profile
+
+![profile.png](Images\profile.png)
 
 ---
 
@@ -73,5 +75,4 @@ cf input.c --print-assembly
 cf input.c -g || cf input.c --debug
 # Disable all Optimizations
 cf input.c -O0
-
 ```
