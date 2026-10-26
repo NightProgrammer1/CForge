@@ -44,7 +44,7 @@
 
 ### Source Code Example
 
-![Code-ShowCase.png](Images\Code-ShowCase.png)
+![Code-ShowCase.png](Images/Code-ShowCase.png)
 
 ### AST Representation
 
@@ -54,7 +54,7 @@
 
 ### Compilers Profile
 
-![profile.png](Images\profile.png)
+![profile.png](Images/profile.png)
 
 ---
 
