@@ -8,6 +8,7 @@
 #include <span>
 
 
+
 class ConstantFolder
 {
 public:
@@ -15,20 +16,61 @@ public:
 		: ast(&program), _allocator(&allocator) {
 	}
 
-	void FoldProgram()
+	void FoldProgram(bool optimize)
 	{
-		AnalyzeProg(*ast);
+		AnalyzeProg(*ast, optimize);
 	}
 
 private:
 	std::optional<ConstValue> Fold(NodeExpr* expr, ExprContext ctx = ExprContext::RValue) {
 		if (!expr) return std::nullopt;
 
-		if (auto evalResult = ASTEvaluator::EvaluateExpr(expr, constants, ctx)){
 
-			return evalResult;
-		}
-		return std::nullopt;
+
+		return std::visit([&](auto& node) -> std::optional<ConstValue> {
+			using T = std::decay_t<decltype(node)>;
+
+			if constexpr (std::is_same_v<T, NodeExprBinary> || std::is_same_v<T, NodeExprCompare>)
+			{
+				auto lhsVal = ASTEvaluator::EvaluateExpr(node.left, constants, ctx);
+				auto rhsVal = ASTEvaluator::EvaluateExpr(node.right, constants, ctx);
+
+				if (!lhsVal && !rhsVal) return std::nullopt;
+
+				(!lhsVal && rhsVal) ? node.right = ToNodeExpr(*rhsVal) : node.left = ToNodeExpr(*lhsVal);
+				
+			}
+			else if constexpr (std::is_same_v<T, NodeExprInitList>) {
+				std::vector<ConstValue> arrayVal;
+				bool canFold = true;
+				for (size_t i = 0; i < node.values.size(); ++i)
+				{
+					if (auto value = Fold(node.values[i]))
+					{
+						node.values[i] = ToNodeExpr(*value);
+						arrayVal.push_back(*value);
+					}
+					else { canFold = false; }
+				}
+				if (canFold) {
+					return arrayVal;
+				}
+				return std::nullopt;
+			}
+			else if constexpr (std::is_same_v<T, NodeExprAssignment>) {
+				if (auto value = Fold(node.expr)) {
+					node.expr = ToNodeExpr(*value);
+				}
+
+				return std::nullopt;
+			}
+			if (auto evalResult = ASTEvaluator::EvaluateExpr(expr, constants, ctx)) {
+
+				return evalResult;
+			}
+			return std::nullopt;
+			}, expr->var);
+		
 	}
 
 	
@@ -42,19 +84,40 @@ private:
 			{
 				return NodeStatement{ stat };
 			}
-			std::optional<NodeStatement> operator()(NodeStatementVar& stat)
+			std::optional<NodeStatement> operator()(NodeStatementVar& var)
 			{
 
-				if (auto value = analyzer->Fold(stat.initializer))
-				{
-					if (analyzer->GenerateVariable(stat.id, *value)) {
-						return std::nullopt;
+				auto baseType = TypeInfo::GetBaseType(var.type);
+				auto value = analyzer->Fold(var.initializer);
 
+				if (value && value->is_scalar())
+				{
+					var.initializer = analyzer->ToNodeExpr(*value);
+				}
+				if (!baseType.mod.is_const || var.symbol->isAddressTaken) { return NodeStatement{ var }; }
+				if (!var.initializer) {
+
+					auto dims = TypeInfo::GetArrayDimensions(var.type);
+					ConstValue defaultValue = !dims.empty()
+						? ConstValue::create_array(dims)
+						: ConstValue{};
+
+					if (!analyzer->GenerateVariable(var.id, std::move(defaultValue))) {
+						std::cerr << "ConstFolder: Failed to generate const value for variable: "
+							<< var.name << std::endl;
+						return NodeStatement{ var };
+					}
+					return std::nullopt;
+				}
+				if (value)
+				{
+					if (analyzer->GenerateVariable(var.id, std::move(*value))) {
+						return std::nullopt;
 					}
 				}
-				std::cerr << "ConstFolder: Failed to generate const value for variable: " << stat.name << std::endl;
+				std::cerr << "ConstFolder: Failed to generate const value for variable: " << var.name << std::endl;
 				
-				return NodeStatement{ stat };
+				return NodeStatement{ var };
 			}
 			std::optional<NodeStatement> operator()(NodeBlock& block)
 			{
@@ -66,34 +129,43 @@ private:
 			std::optional<NodeStatement> operator()(NodeStatementIf& _if)
 			{
 				if (auto value = ASTEvaluator::EvaluateExpr(_if.condition, analyzer->constants)) {
-					bool is_true = std::visit([](auto Val) -> bool {
-						return (Val != 0);
-						}, value->get_scalar());
+					bool is_true = false;
+					std::visit([&is_true, this](auto&& arg) {
+						using T = std::decay_t<decltype(arg)>;
+
+						if constexpr (std::is_same_v<T, ConstValue::Scalar>) {
+							is_true = std::visit([](auto&& s) -> bool {
+								return s != 0;
+								}, arg);
+						}
+						else if constexpr (std::is_same_v<T, std::vector<ConstValue>>) {
+							is_true = true;
+						}
+						else if constexpr (std::is_same_v<T, ConstValue::Pointer>) {
+							is_true = (analyzer->GetVariable(arg.variable_id) != nullptr);
+						}
+						}, value->data);
+
 
 					if (is_true) {
 						return analyzer->AnalyzeStatement(*_if.thenBody);
 					}
-					else {
-						if (_if.elseBody) {
-							return analyzer->AnalyzeStatement(*_if.elseBody);
-						}
-						else {
-							return std::nullopt; // Eliminate the entire if statement (DCE)
-						}
+					if (_if.elseBody) {
+						return analyzer->AnalyzeStatement(*_if.elseBody);
 					}
+					return std::nullopt; // Eliminate the entire if statement (DCE)
+					
 				}
 
 				// Dynamic condition: analyze branches normally without flattening
 				if (_if.thenBody) {
-					auto analyzedThen = analyzer->AnalyzeStatement(*_if.thenBody);
-					if (analyzedThen) {
+					if (auto analyzedThen = analyzer->AnalyzeStatement(*_if.thenBody)) {
 						*_if.thenBody = *analyzedThen;
 					}
 				}
 
 				if (_if.elseBody) {
-					auto analyzedElse = analyzer->AnalyzeStatement(*_if.elseBody);
-					if (analyzedElse) {
+					if (auto analyzedElse = analyzer->AnalyzeStatement(*_if.elseBody)) {
 						*_if.elseBody = *analyzedElse;
 					}
 				}
@@ -102,33 +174,32 @@ private:
 			}
 			std::optional<NodeStatement> operator()(NodeStatementWhile& _while)
 			{
-				auto testEnv = analyzer->constants;
-				// Evaluate the loop entirely at compile time
-				EvalResult result = ASTEvaluator::EvaluateWhile(_while, testEnv);
+				auto condVal = analyzer->Fold(_while.condition);
+				if (!condVal) { analyzer->AnalyzeStatement(*_while.body); return NodeStatement{ _while }; };
 
-				if (result.status != EvalResult::Status::Failure) {
+				bool is_true = false;
+				std::visit([&is_true, this](auto&& arg) {
+					using T = std::decay_t<decltype(arg)>;
 
-					for (size_t i = 0; i < analyzer->constants.size() && i < testEnv.size(); ++i) {
-						for (const auto& [id, val] : testEnv[i].variable) {
-							analyzer->constants[i].variable[id] = val;
-						}
+					if constexpr (std::is_same_v<T, ConstValue::Scalar>) {
+						is_true = std::visit([](auto&& s) -> bool {
+							return s != 0;
+							}, arg);
 					}
-
-					if (result.status == EvalResult::Status::Return) {
-						// Handle return statement if needed
-						return NodeStatement{ NodeStatementReturn{analyzer->ToNodeExpr((result.value))} };
+					else if constexpr (std::is_same_v<T, std::vector<ConstValue>>) {
+						is_true = true;
 					}
+					else if constexpr (std::is_same_v<T, ConstValue::Pointer>) {
+						is_true = (analyzer->GetVariable(arg.variable_id) != nullptr);
+					}
+					}, condVal->data);
+				if(!is_true){ return std::nullopt; }
 
-					return std::nullopt;
-				}
-
-				// If it's a dynamic loop, fold condition and analyze body normally
-				if (auto value = analyzer->Fold(_while.condition))
-				{
-					_while.condition = analyzer->ToNodeExpr(*value);
-				}
 				analyzer->AnalyzeStatement(*_while.body);
-
+				if (_while.update) {
+					analyzer->Fold(_while.update);
+				}
+				
 				return NodeStatement{ _while };
 			}
 
@@ -159,89 +230,13 @@ private:
 			}
 			std::optional<NodeStatement> operator()(NodeStatementAssignment& assign)
 			{
-				// Try to evaluate the RHS to a constant value
-				if (auto value = ASTEvaluator::EvaluateExpr(assign.expr, analyzer->constants)) {
-
-					if (auto* ident = std::get_if<NodeExprIdent>(&assign.target->var)) {
-						analyzer->SetVariableValue(ident->id, *value);
-						return std::nullopt;
-					}
-					else if (auto lhs = ASTEvaluator::EvaluateExpr(assign.target, analyzer->constants, ExprContext::LValue)) {
-
-						if (lhs->is_pointer())
-						{
-							auto ptr = lhs->get_pointer();
-							if (auto varVal = analyzer->GetVariable(ptr->variable_id))
-							{
-								if (varVal->is_scalar()) {
-									analyzer->SetVariableValue(ptr->variable_id, *value);
-								}
-								else if (varVal->is_array()) {
-									ConstValue updatedArray = *varVal;
-									std::vector<size_t> finalIndices = ptr->indices;
-									if (finalIndices.empty()) {
-										finalIndices.push_back(ptr->element_offset);
-									}
-									else {
-										finalIndices.back() += ptr->element_offset;
-									}
-									updatedArray.set_value_at_indices(finalIndices, *value);
-									analyzer->SetVariableValue(ptr->variable_id, updatedArray);
-									return std::nullopt;
-								}
-							}
-							
-						}
-					}
-					
-				}
-				else {
-					if (auto* ident = std::get_if<NodeExprIdent>(&assign.target->var)) {
-						analyzer->InvalidateVariable(ident->id);
-					}
-					else {
-						analyzer->InvalidateVariable(analyzer->GetID(assign.target));
+				if (auto value = analyzer->Fold(assign.expr)) {
+					if (value->is_scalar())
+					{
+						assign.expr = analyzer->ToNodeExpr(*value);
 					}
 				}
 				return NodeStatement{ assign };
-			}
-			std::optional<NodeStatement> operator()(NodeStatementArray& arr)
-			{
-				if (!arr.initializer) {
-
-					auto dims = TypeInfo::GetArrayDimensions(arr.element_type);
-					ConstValue defaultArray;
-					if (!dims.empty()) {
-						defaultArray = analyzer->create_nested_array(dims);
-						if (!analyzer->GenerateVariable(arr.id, defaultArray))
-						{
-							std::cerr << "ConstFolder: Failed to generate const value for variable: " << arr.name << std::endl;
-							return NodeStatement{ arr };
-						}
-					}
-					else {
-						size_t elementCount = arr.element_type->Size() / TypeInfo::GetBaseType(arr.element_type)->Size();
-						defaultArray = ConstValue::create_array(elementCount);
-						
-					}
-					if (!analyzer->GenerateVariable(arr.id, defaultArray))
-					{
-						std::cerr << "ConstFolder: Failed to generate const value for variable: " << arr.name << std::endl;
-						return NodeStatement{ arr };
-
-					}
-					return std::nullopt;
-				}
-
-				if (auto value = analyzer->Fold(arr.initializer))
-				{
-					arr.initializer = analyzer->ToNodeExpr(*value);
-
-					return std::nullopt;
-
-				}
-				std::cerr << "ConstFolder: Failed to generate const value for variable: " << arr.name << std::endl;
-				return NodeStatement{ arr };
 			}
 		};
 
@@ -280,14 +275,45 @@ private:
 		ExitScope();
 	}
 
-	void AnalyzeProg(NodeProg& prog)
+	void AnalyzeProg(NodeProg& prog, bool optimize)
 	{
-		for (auto& func : prog.functions)
-		{
-			if (func.body.has_value()) {
-				AnalyzeFunction(func);
-			}
+		EnterScope();
+		for (auto& stat : prog.items) {
+
+			std::visit([&](auto* node) {
+				using T = std::decay_t<decltype(*node)>;
+
+				if constexpr (std::is_same_v<T, NodeFunction>) {
+					if (optimize) {
+						AnalyzeFunction(*node);
+					}
+				}
+				else if constexpr (std::is_same_v<T, NodeStatementVar>) {
+					if (node->initializer) {
+						auto evaluated = ASTEvaluator::EvaluateExpr(node->initializer, constants);
+
+						if (!evaluated) {
+							std::cerr << "Error: Global variable '" << node->name
+								<< "' initializer must be a compile-time constant.\n";
+							std::exit(EXIT_FAILURE);
+						}
+
+						node->compiled_constant = *evaluated;
+						GenerateVariable(node->id, *evaluated);
+					}
+					else {
+						node->compiled_constant = ConstValue{ 0 };
+					}
+				}
+				
+				}, stat.decl);
+			
 		}
+
+
+		
+
+		ExitScope();
 	}
 
 
@@ -368,7 +394,14 @@ private:
 
 	NodeExpr* ToNodeExpr(const ConstValue& value)
 	{
-		return std::visit([this](ConstValue::Scalar Val)-> NodeExpr*
+
+
+		
+		if (!value.is_scalar()) {
+			std::cerr << "ICE: Cannot convert ConstValue to NodeExpr" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+		return std::visit([this](ConstValue::Scalar&& Val)-> NodeExpr*
 			{
 				if (auto result = std::get_if<int>(&Val))
 				{
@@ -412,18 +445,28 @@ private:
 		return ValueID::INVALID_ID;
 	}
 
+	bool GenerateVariable(const size_t& ID, ConstValue&& value)
+	{
+		if (ID == ValueID::INVALID_ID) return false;
+		else if (constants.empty()) { constants.emplace_back(); }
+		constants.back().variable[ID] = std::move(value);
+
+
+		return true;
+
+	}
+
 	bool GenerateVariable(const size_t& ID, const ConstValue& value)
 	{
 		if (ID == ValueID::INVALID_ID) return false;
 		else if (constants.empty()) { constants.emplace_back(); }
 		constants.back().variable[ID] = value;
 
-
 		return true;
 
 	}
 	
-	void SetVariableValue(const size_t& ID, const ConstValue& value)
+	void SetVariableValue(const size_t& ID, ConstValue&& value)
 	{
 		if (ID == ValueID::INVALID_ID) return;
 
@@ -435,7 +478,7 @@ private:
 		);
 		if (find != constants.rend())
 		{
-			find->variable.at(ID) = value;
+			find->variable.at(ID) = std::move(value);
 		}
 	}
 
@@ -456,18 +499,6 @@ private:
 		}
 	}
 
-	ConstValue create_nested_array(const std::vector<size_t>& dims, size_t depth = 0) {
-		if (depth == dims.size() - 1) {
-			return ConstValue::create_array(dims[depth]);
-		}
-
-		std::vector<ConstValue> innerElements;
-		innerElements.reserve(dims[depth]);
-		for (size_t i = 0; i < dims[depth]; ++i) {
-			innerElements.push_back(create_nested_array(dims, depth + 1));
-		}
-		return ConstValue{ innerElements };
-	}
 
 	
 	std::unordered_map<size_t, ConstValue> _allEnvVariables;

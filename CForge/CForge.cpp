@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 
+
 std::string executeCommand(const std::string& cmd, int& exitCode) {
 	std::string output = "";
 	std::array<char, 128> buffer;
@@ -25,7 +26,6 @@ std::string executeCommand(const std::string& cmd, int& exitCode) {
 
 	return output;
 }
-
 int Compile(int argc, char* argv[], std::string_view assembly)
 {
 	bool print_assembly = false;
@@ -177,11 +177,8 @@ int main(int argc, char* argv[])
 		ScopedTimer t("Constant Folding & Lowering", enable_profiling);
 
 		// --- CONSTANT FOLDER / OPTIMIZATIONS ---
-		if (enable_optimization) {
-			auto folder = ConstantFolder(exitNode.value(), genericAlloc);
-			folder.FoldProgram();
-		}
-
+		auto folder = ConstantFolder(exitNode.value(), genericAlloc);
+		folder.FoldProgram(enable_optimization);
 		// --- IR LOWERING & CODEGEN ---
 		IRLowering lowerer(exitNode.value(), genericAlloc);
 		auto ir = lowerer.Lower();
@@ -222,3 +219,4 @@ int main(int argc, char* argv[])
 
 	return Compile(argc, argv, assembly);
 }
+

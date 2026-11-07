@@ -15,6 +15,8 @@ public:
 	CFGProgram Create()
 	{
 		CFGProgram program;
+
+		program.globals = std::move(instructions.globals);
 		for (const auto& tac : instructions.functions)
 		{
 			

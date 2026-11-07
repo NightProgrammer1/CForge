@@ -204,56 +204,55 @@ private:
     }
     void Move(const MachineOperand& dst, const MachineOperand& src, const Memory::OperandSize& size, std::vector<MachineInstruction>& fixed_stream)
     {
-        if (SameOperand(dst, src)) { return ; }
+		if (SameOperand(dst, src)) { return; }
 
-        bool dstMemory = IsMemory(dst);
-        bool srcMemory = IsMemory(src);
-        auto moveSize = dst.size;
+		bool dstMemory = IsMemory(dst);
+		bool srcMemory = IsMemory(src);
+		auto moveSize = dst.size;
+		auto destination = dst;
+		auto source = src;
 
-        auto destination = dst;
-        auto source = src;
+		if (dstMemory && srcMemory)
+		{
+			auto scratch = MachineOperand::PhysicalReg(SCRATCH, moveSize);
+			Move(scratch, src, moveSize, fixed_stream);
+			Move(dst, scratch, moveSize, fixed_stream);
+			return;
+		}
 
+		MachineInstruction move;
 
-        if (dstMemory && srcMemory)
-        {
-            auto scratch = MachineOperand::PhysicalReg(SCRATCH, size);
-            Move(scratch, src, size, fixed_stream);
-            Move(dst, scratch, size, fixed_stream);
-            return;
-        }
-        MachineInstruction move;
+		auto ResolveStackSlot = [&](const MachineOperand& op) -> MachineOperand {
+			if (auto mem = std::get_if<MemoryOperand>(&op.operand))
+			{
+				if (mem->address && (mem->address->kind == MachineOperand::Kind::StackSlot ||
+					mem->address->kind == MachineOperand::Kind::Memory))
+				{
+					auto scratchBase = MachineOperand::PhysicalReg(SCRATCH, mem->address->size);
+					Move(scratchBase, *mem->address, mem->address->size, fixed_stream);
 
-        auto ResolveStackSlot = [&](const MachineOperand& op) -> MachineOperand {
-            if (auto mem = std::get_if<MemoryOperand>(&op.operand))
-            {
-                if (mem->address && mem->address->kind == MachineOperand::Kind::StackSlot)
-                {
-                    auto scratchBase = MachineOperand::PhysicalReg(SCRATCH, mem->address->size);
-                    Move(scratchBase, *mem->address, mem->address->size, fixed_stream);
+					MachineOperand resolvedMem = MachineOperand::Memory(scratchBase, op.size);
+					return resolvedMem;
+				}
+			}
+			return op;
+			};
 
-                    MachineOperand resolvedMem = MachineOperand::Memory(scratchBase, op.size);
-                    return resolvedMem;
-                }
-            }
-            return op;
-            };
+		if (moveSize == Memory::OperandSize::Qword && src.size < Memory::OperandSize::Qword && src.kind != MachineOperand::Kind::Immediate)
+		{
+			move.opcode = MachineOpcode::MOVSXD;
+		}
+		else if (dst.size >= Memory::OperandSize::Dword && src.size == Memory::OperandSize::Byte && src.kind != MachineOperand::Kind::Immediate)
+		{
+			move.opcode = MachineOpcode::MOVZX;
+		}
+		else {
+			move.opcode = MachineOpcode::MOV;
+		}
 
-        if (moveSize == Memory::OperandSize::Qword && src.size < Memory::OperandSize::Qword && src.kind != MachineOperand::Kind::Immediate) //movsxd
-        {
-            move.opcode = MachineOpcode::MOVSXD;
-        }
-        else if (dst.size >= Memory::OperandSize::Dword && src.size == Memory::OperandSize::Byte && src.kind != MachineOperand::Kind::Immediate)
-        {
-            move.opcode = MachineOpcode::MOVZX;
-        }
-        else {
-            move.opcode = MachineOpcode::MOV;
-
-        }
-
-        move.operands.push_back(ResolveStackSlot(dst));
-        move.operands.push_back(ResolveStackSlot(src));
-        fixed_stream.push_back(move);
+		move.operands.push_back(ResolveStackSlot(dst));
+		move.operands.push_back(ResolveStackSlot(src));
+		fixed_stream.push_back(move);
     }
 
 

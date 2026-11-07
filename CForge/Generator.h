@@ -21,11 +21,17 @@ public:
 		_output << "    call main\n";
 		_output << "    mov rdi, rax\n";
 		_output << "    mov rax, 60\n";
-		_output << "    syscall\n";
+		_output << "    syscall\n\n";
 	
 
-		for (auto function : program.functions)
-		{
+		_output << "section .data\n";
+
+		GenerateGlobals(program.globals);
+		_output << "\n";
+
+
+		_output << "section .text\n";
+		for (const auto& function : program.functions) {
 			_output << function.name << ":\n";
 			_output << "    push rbp\n";
 			_output << "    mov rbp, rsp\n";
@@ -38,14 +44,12 @@ public:
 			size_t subBytes = alignedTotal - pushedBytes;
 
 			if (subBytes > 0) {
-				_output << "    sub rsp, " + std::to_string(subBytes) <<"\n";
+				_output << "    sub rsp, " + std::to_string(subBytes) << "\n";
 			}
-			for (auto block : function.blocks)
+			for (const auto& block : function.blocks)
 			{
 				GenerateBlock(block, function);
 			}
-
-			
 		}
 		
 		return _output.str();
@@ -134,6 +138,65 @@ private:
 		_output << FormatOperand(src);
 		_output << "\n";
 
+	}
+
+	void GenerateGlobals(const std::vector<IRGlobalVariable>& global)
+	{
+		for (const auto& var : global) {
+			_output << var.name << ":\n";
+			auto size = Memory::OperandSize(var.type.Size());
+			std::string directive = GetDataDirective(size);
+
+			if (var.initial_value.has_value()) {
+				std::visit([&](const auto& val) {
+					using T = std::decay_t<decltype(val)>;
+
+					if constexpr (std::is_same_v<T, ConstValue::Scalar>) {
+						std::visit([&](const auto& scalarVal) {
+							_output << "    " << directive << " " << scalarVal << "\n";
+							}, val);
+					}
+					else if constexpr (std::is_same_v<T, std::vector<ConstValue>>) {
+						_output << "    " << directive << " ";
+						for (size_t i = 0; i < val.size(); ++i) {
+							std::visit([&](const auto& elemVal) {
+								using ElemT = std::decay_t<decltype(elemVal)>;
+								if constexpr (std::is_same_v<ElemT, ConstValue::Scalar>) {
+									std::visit([&](const auto& scalarVal) {
+										_output << scalarVal;
+										}, elemVal);
+								}
+								}, val[i].data); 
+
+							if (i + 1 < val.size()) {
+								_output << ", ";
+							}
+						}
+						_output << "\n";
+					}
+					else if constexpr (std::is_same_v<T, ConstValue::Pointer>) {
+						std::string target_name = "";
+
+						// Search your existing globals vector for the matching variable ID
+						for (const auto& global_var : program.globals) {
+							if (global_var.id == val.variable_id) { 
+								target_name = global_var.name;
+								break;
+							}
+						}
+
+						assert(!target_name.empty() && "ICE: Failed to resolve pointer target ID in globals vector");
+
+						_output << "    dq " << target_name << "\n";
+					}
+
+					}, var.initial_value->data);
+			}
+			else {
+				// Default uninitialized to 0 using the correct type size directive
+				_output << "    " << directive << " 0\n";
+			}
+		}
 	}
 	void GenerateAssembly(const MachineInstruction& ins, const MachineFunction& fnContext)
 	{
@@ -527,6 +590,11 @@ private:
 			}
 
 			std::string operator()(const MemoryOperand& mem) {
+
+				if (auto label = std::get_if<LabelOperand>(&mem.address->operand))
+				{
+					//return "[rel " + label->label +  "]";
+				}
 				// Memory address registers are always 64-bit pointers (Qword)
 				std::string innerAddr = gen->FormatOperand(*mem.address, OperandSize::Qword);
 				std::string sizeSpecifier = GetSizeSpecifier(size);

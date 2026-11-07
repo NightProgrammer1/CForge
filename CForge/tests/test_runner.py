@@ -23,7 +23,9 @@ TEST_EXPECTATIONS = {
     "test_for_empty_clauses.c": 10,
     "single_integer_in_while_loop.c": 10,
     "nested_loops_break_continue.c": 10,
-    "unary_not_single_variable.c": 10
+    "unary_not_single_variable.c": 10,
+    "global_variables.c": 20,
+    "const_variables_array_initializer_and_pointers.c": 10
 }
 
 GREEN = "\033[92m"

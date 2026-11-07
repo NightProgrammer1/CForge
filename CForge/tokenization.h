@@ -1,10 +1,8 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <optional>
-#include <iostream>
-#include "fmt/format.h"
-
 
 enum class TokenType 
 {
@@ -75,15 +73,6 @@ enum class TokenType
 	_NULL
 };
 
-namespace fmt {
-template <>
-struct formatter<TokenType> : formatter<int> {
-  template <typename FormatContext>
-  auto format(TokenType t, FormatContext& ctx) const {
-	return formatter<int>::format(static_cast<int>(t), ctx);
-  }
-};
-}
 
 struct Token
 {
@@ -132,77 +121,14 @@ public:
 
                 }
 
-                if (identifier == "exit")
-                {
-                    tokens.push_back({  TokenType::exit, identifier, lineCount });
-
-                }
-                else if (identifier == "int")
-                {
-                    tokens.push_back({  TokenType::_int, identifier, lineCount });
-                }
-                else if (identifier == "void")
-                {
-                    tokens.push_back({ TokenType::_void, identifier, lineCount });
-                }
-                else if (identifier == "if")
-                {
-                    tokens.push_back({  TokenType::_if, identifier, lineCount });
-
-                }
-                else if (identifier == "else")
-                {
-                    tokens.push_back({ TokenType::_else, identifier, lineCount });
-
-                }
-                else if (identifier == "bool")
-                {
-                    tokens.push_back({ TokenType::_bool, identifier,  lineCount });
-
-                }
-                else if (identifier == "true")
-                {
-                    tokens.push_back({  TokenType::true_literal, identifier, lineCount });
-
-                }
-                else if (identifier == "false")
-                {
-                    tokens.push_back({  TokenType::false_literal, identifier, lineCount });
-
-                }
-				else if (identifier == "while")
-				{
-					tokens.push_back({  TokenType::_while, identifier, lineCount });
-
+				auto it = Tokenizer::keywords.find(identifier);
+				if (it != Tokenizer::keywords.end()) {
+					tokens.push_back({ it->second, identifier, lineCount });
 				}
-                else if (identifier == "for")
-                {
-                    tokens.push_back({ TokenType::_for, identifier, lineCount });
-
-                }
-                else if (identifier == "return")
-                {
-                    tokens.push_back({ TokenType::_return, identifier,  lineCount });
-
-                }
-                else if (identifier == "break")
-                {
-                    tokens.push_back({ TokenType::_break, identifier,  lineCount });
-
-                }
-                else if (identifier == "continue")
-                {
-                    tokens.push_back({ TokenType::_continue, identifier,  lineCount });
-
-                }
-                else if (identifier == "NULL")
-                {
-                    tokens.push_back({ TokenType::_NULL, identifier,  lineCount });
-                }
-                else
-                {
-                    tokens.push_back({  TokenType::_identifier, identifier, lineCount });
-                }
+				else {
+					// It's a regular user-defined identifier (variable/function name)
+					tokens.push_back({ TokenType::_identifier, identifier, lineCount });
+				}
             }
 
             else if (isdigit(c))
@@ -319,7 +245,7 @@ public:
                     _currentIndex++;
                     continue;
                 }
-                else if (PeekChar() && PeekChar().value() == '/')
+                if (PeekChar() && PeekChar().value() == '/')
                 {
                     auto next_line = content.find('\n', _currentIndex);
                     _currentIndex += (next_line - _currentIndex); // skips the line
@@ -329,9 +255,7 @@ public:
 
                     continue;
                 }
-                else {
-                    tokens.push_back({ TokenType::div, "/", lineCount });
-                }
+                tokens.push_back({ TokenType::div, "/", lineCount });
             }
             else if (c == '-')
             {
@@ -343,17 +267,14 @@ public:
                     _currentIndex++;
                     continue;
                 }
-                else if (PeekChar().has_value() && PeekChar().value() == '-')
+                if (PeekChar().has_value() && PeekChar().value() == '-')
                 {
                     tokens.push_back({ TokenType::decrease, "--", lineCount });
                     _currentIndex++;
                     continue;
                 }
-                else
-                {
-                    tokens.push_back({ TokenType::sub, "-", lineCount });
-
-                }
+                
+                tokens.push_back({ TokenType::sub, "-", lineCount });
             }
             else if (c == '{')
             {
@@ -471,4 +392,27 @@ public:
 		}
     }
 
+
+
+    private:
+	static inline const std::unordered_map<std::string, TokenType> keywords = {
+	{ "exit",     TokenType::exit },
+	{ "int",      TokenType::_int },
+	{ "void",     TokenType::_void },
+	{ "if",       TokenType::_if },
+	{ "else",     TokenType::_else },
+	{ "bool",     TokenType::_bool },
+	{ "true",     TokenType::true_literal },
+	{ "false",    TokenType::false_literal },
+	{ "while",    TokenType::_while },
+	{ "for",      TokenType::_for },
+	{ "return",   TokenType::_return },
+	{ "break",    TokenType::_break },
+	{ "continue", TokenType::_continue },
+	{ "NULL",     TokenType::_NULL },
+    {"const", TokenType::_const},
+    {"_static", TokenType::_static},
+	{ "volatile", TokenType::_volatile }
+
+		};
 };

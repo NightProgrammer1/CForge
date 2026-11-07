@@ -15,8 +15,9 @@ public:
 	TACProgram Lower()
 	{
 		TACProgram tacProgram;
-
-		for (auto& function : ir.functions)
+		
+		tacProgram.globals = std::move(ir.globals);
+		for (const auto& function : ir.functions)
 		{
 			for (auto stat : function.statements) {
 				LowerStatement(*stat);
@@ -26,6 +27,7 @@ public:
 			tac.stackSize = function.stackSize;
 			tacProgram.functions.push_back(std::move(tac));
 		}
+		
 
 		return std::move(tacProgram);
 
@@ -183,7 +185,7 @@ private:
 			IRExpr* operator()(const IRExprAddressOf& address) const {
 				auto object = tac.LowerExpr(address.object);
 
-				auto temp = tac._allocator.new_object<IRExpr>(IRExprTemp{ ValueID::Create() }, Type::MakePointer(address.object->type));
+				auto temp = tac._allocator.new_object<IRExpr>(IRExprTemp{ ValueID::Create() }, QualifiedType::MakePointer(address.object->type));
 
 				tac.Emit(TACAddressOf{ temp, object });
 				return temp;
@@ -193,6 +195,9 @@ private:
 				return expr;
 			}
 			IRExpr* operator()(const IRExprESEQ&) const {
+				return expr;
+			}
+			IRExpr* operator()(const IRExprGlobal&) const {
 				return expr;
 			}
 		};

@@ -10,61 +10,71 @@ public:
 
 	}
    
-    std::optional<NodeProg> ParseProgram()
-    {
-        NodeProg prog;
-        while (PeekToken().has_value()) {
-            if (IsFunctionDeclaration()) {
-                prog.functions.push_back(ParseFunctions());
-            }
-            else {
-                if (auto statement = ParseStat()) {
-                    prog.global_space.statements.push_back(std::move(statement));
-                }
-                else
-                {
-                    std::cerr << "Invalid statement in block\n";
-                    exit(EXIT_FAILURE);
-                }
-            }
-
-
-        }
-
-        return prog;
-
-
-    }
+	std::optional<NodeProg> ParseProgram()
+	{
+		NodeProg prog;
+		while (PeekToken().has_value()) {
+			if (IsFunctionDeclaration()) {
+                prog.items.push_back(NodeTopLevel{ ParseFunctions() });
+			}
+			else {
+				if (auto statement = ParseStat()) {
+					// Only variable declarations are allowed in global space
+					if (auto stat = std::get_if<NodeStatementVar>(&statement->stat)) {
+                        prog.items.push_back(NodeTopLevel{ stat });
+					}
+					else {
+						std::cerr << "Compile-Time Error: Only variable declarations are allowed in global scope.\n";
+						std::exit(EXIT_FAILURE);
+					}
+				}
+				else {
+					std::cerr << "Compile-Time Error: Invalid statement in global scope.\n";
+					std::exit(EXIT_FAILURE);
+				}
+			}
+		}
+		return prog;
+	}
 
 
 private:
-    NodeExpr* ParsePrimary()
-    {
-        auto p = PeekToken();
+	NodeExpr* ParsePrimary()
+	{
+		auto p = PeekToken();
 
-        if (p && p->type == TokenType::int_literal) {
-            return _allocator->new_object<NodeExpr>(NodeExprIntLit{ std::stoi(GetToken().value) }, Type::MakeInt());
-        }
-        if (Match(TokenType::false_literal)) {
-            return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ .value = false }, Type::MakeBool());
-        }
-        if (Match(TokenType::true_literal)) {
-            return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ .value = true }, Type::MakeBool());
-        }
-        if (p && p->type == TokenType::_identifier) {
-            std::string identifier = GetToken().value;
-            auto identExpr = _allocator->new_object<NodeExpr>();
-            identExpr->var = NodeExprIdent{ identifier };
-            return identExpr;
-        }
-        if (Match(TokenType::open_paren)) {
-            auto expr = ParseBoolean();
-            Consume(TokenType::close_paren);
-            return expr;
-        }
-
-        return nullptr;
-    }
+		if (p && p->type == TokenType::int_literal) {
+			return _allocator->new_object<NodeExpr>(NodeExprIntLit{ std::stoi(GetToken().value) }, QualifiedType::MakeInt());
+		}
+		if (Match(TokenType::false_literal)) {
+			return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ .value = false }, QualifiedType::MakeBool());
+		}
+		if (Match(TokenType::true_literal)) {
+			return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ .value = true }, QualifiedType::MakeBool());
+		}
+		if (p && p->type == TokenType::_identifier) {
+			std::string identifier = GetToken().value;
+			auto identExpr = _allocator->new_object<NodeExpr>();
+			identExpr->var = NodeExprIdent{ identifier };
+			return identExpr;
+		}
+		if (Match(TokenType::open_paren)) {
+			auto expr = ParseBoolean();
+			Consume(TokenType::close_paren);
+			return expr;
+		}
+		if (p && p->type == TokenType::open_brace) {
+			return ParseInitializerList();
+		}
+		if (Match(TokenType::_NULL))
+		{
+			return _allocator->new_object<NodeExpr>(
+				NodeExprIntLit{ 0 },
+                QualifiedType::MakePointer(QualifiedType::MakeVoid(), Modifier{})
+			);
+		}
+		return nullptr;
+	}
     NodeExpr* ParsePostfix()
     {
         // 1. First parse the base primary expression
@@ -258,8 +268,8 @@ private:
 
             binary->var = NodeExprCompare{
                op.type,
-               std::move(left),
-               std::move(right)
+               left,
+               right
             };
 
             left = std::move(binary);
@@ -334,8 +344,8 @@ private:
 
             binary->var = NodeExprCompare{
                op.type,
-               std::move(left),
-               std::move(right)
+               left,
+               right
             };
 
             left = std::move(binary);
@@ -411,7 +421,7 @@ private:
         {
             NodeStatementExit exit_node;
             if (auto node_expr = ParseLogicalOr()) {
-                exit_node.expr = std::move(node_expr);
+                exit_node.expr = node_expr;
             }
             else {
                 std::cerr << "Invalid (exit) expression\n";
@@ -434,7 +444,7 @@ private:
             }
 
             if (auto expr = ParseLogicalOr()) {
-                ret.expr = std::move(expr);
+                ret.expr = expr;
             }
             else {
                 std::cerr << "Invalid return expression\n";
@@ -472,19 +482,19 @@ private:
     }
 
 
-    std::shared_ptr<Type> ParseType(const Token& token)
+    QualifiedType ParseType(const Token& token)
     {
 
         switch (token.type)
         {
         case TokenType::_int:
-            return std::make_shared<Type>( Type::Kind::Int );
+            return QualifiedType::MakeInt();
             break;
         case TokenType::_bool:
-            return std::make_shared<Type>(Type::Kind::Bool );
+            return QualifiedType::MakeBool();
             break;
         case TokenType::_void:
-            return std::make_shared<Type>(Type::Kind::Void );
+            return QualifiedType::MakeVoid();
             break;
         default:
             break;
@@ -493,7 +503,7 @@ private:
     bool IsTypeSpecifier(std::optional<Token> tok) {
         if (!tok.has_value()) return false;
         return tok->type == TokenType::_int ||
-            tok->type == TokenType::_bool;
+            tok->type == TokenType::_bool || tok->type == TokenType::_const;
         // tok->type == TokenType::_float;
     }
 
@@ -559,7 +569,7 @@ private:
         NodeStatementExpr expr_stmt{ expr };
         return _allocator->new_object<NodeStatement>(expr_stmt);
     }
-    NodeFunction ParseFunctions()
+    NodeFunction* ParseFunctions()
     {
         NodeFunction func;
         auto type = ParseType();
@@ -603,7 +613,7 @@ private:
             exit(EXIT_FAILURE);
         }
 
-        return func;
+        return _allocator->new_object<NodeFunction>(func);
     }
 
 
@@ -614,7 +624,7 @@ private:
         if (auto node_expr = ParseLogicalOr())
         {
             
-            _if.condition = std::move(node_expr);
+            _if.condition = node_expr;
         }
         else
         {
@@ -653,7 +663,7 @@ private:
         NodeStatementWhile _while;
         if (auto node_expr = ParseExpression())
         {
-            _while.condition = std::move(node_expr);
+            _while.condition = node_expr;
         }
         else
         {
@@ -704,7 +714,7 @@ private:
         }
         else {
             // Default to true
-            _while.condition = _allocator->new_object<NodeExpr>(NodeExprBoolLit{ true }, Type::MakeBool());
+            _while.condition = _allocator->new_object<NodeExpr>(NodeExprBoolLit{ true }, QualifiedType::MakeBool());
         }
         Consume(TokenType::semicolon);
         //update
@@ -727,51 +737,40 @@ private:
 
         return _allocator->new_object<NodeStatement>(block);
     }
-    std::optional<NodeStatement*> ParseVariableDeclaration()
-    {
-        auto parsed = ParseType();
-        if (!parsed)
-            return std::nullopt;
+	std::optional<NodeStatement*> ParseVariableDeclaration()
+	{
+		auto parsed = ParseType();
+		if (!parsed)
+			return std::nullopt;
 
-        auto& type = parsed->type;
-        auto& declarator = parsed->declarator;
+		auto& type = parsed->type;
+		auto& declarator = parsed->declarator;
 
-        const std::string& name = declarator.name;
+		const std::string& name = declarator.name;
+		NodeExpr* initializer = nullptr;
 
-        NodeExpr* initializer = nullptr;
-        NodeExpr* expression = nullptr;
+		if (Match(TokenType::equal))
+		{
+			if (TypeInfo::IsArray(type))
+			{
+				initializer = ParseInitializerList(); 
+			}
+			else
+			{
+				initializer = ParseLogicalOr();      
+			}
+		}
 
-        if (Match(TokenType::equal))
-        {
-            if (TypeInfo::IsArray(type))
-                initializer = ParseInitializerList();
-            else
-                expression = ParseLogicalOr();
-        }
+		Consume(TokenType::semicolon);
 
-        Consume(TokenType::semicolon);
+		// Always create a single NodeStatementVar
+		NodeStatementVar var;
+		var.name = name;
+		var.type = type;
+		var.initializer = initializer;
 
-        if (TypeInfo::IsArray(type))
-        {
-            NodeStatementArray arr;
-
-            arr.name = name;
-            arr.element_type = type;
-            arr.initializer = initializer;
-
-            return _allocator->new_object<NodeStatement>(arr);
-        }
-        else
-        {
-            NodeStatementVar var;
-
-            var.name = name;
-            var.element_type = type;
-            var.initializer = expression;
-
-            return _allocator->new_object<NodeStatement>(var);
-        }
-    }
+		return _allocator->new_object<NodeStatement>(var);
+	}
     NodeExpr* ParseInitializerList()
     {
         NodeExprInitList list;
@@ -912,14 +911,15 @@ private:
     std::optional<Token> Consume(TokenType type)
     {
         if (!PeekToken().has_value()) { return{}; }
-        auto error = [&](const std::string& token) { if ((PeekToken().has_value() && PeekToken()->type != type) ) { std::cerr << "Expected: " << (token) << " at line: " << PeekToken().value().line << "  " << "Got: " << PeekToken().value().value << std::endl; exit(EXIT_FAILURE); } };
+        auto error = [&](const std::string& token) { if ((PeekToken().has_value() && PeekToken()->type != type) ) {
+            std::cerr << "Expected: " << (token) << " at line: " << PeekToken().value().line << "  " << "Got: " << PeekToken().value().value << std::endl; exit(EXIT_FAILURE); } };
         switch (type)
         {
         case TokenType::exit:
             error("exit");
             break;
         case TokenType::_identifier:
-            error("Indentifier");
+            error("Identifier");
             break;
         case TokenType::semicolon:
             error(";");
@@ -989,30 +989,48 @@ private:
     }
     std::optional<ParsedType> ParseType()
     {
-        Type base;
+        QualifiedType base;
+        bool type_found = false;
+		while (PeekToken()) {
+			if (Match(TokenType::_int))
+			{
+				base.base_type = std::make_shared<Type>();
+				base.base_type->kind = Type::Kind::Int;
+				type_found = true;
+			}
+			else if (Match(TokenType::_bool))
+			{
+				base.base_type = std::make_shared<Type>();
+				base.base_type->kind = Type::Kind::Bool;
+				type_found = true;
+			}
+			else if (Match(TokenType::_void))
+			{
+				base.base_type = std::make_shared<Type>();
+				base.base_type->kind = Type::Kind::Void;
+				type_found = true;
+			}
+			else if (Match(TokenType::_const))
+			{
+				base.mod.is_const = true;
+			}
+			else if (Match(TokenType::_volatile))
+			{
+				base.mod.is_volatile = true;
+			}
+			else
+			{
+				// Not a type specifier or qualifier, break out of type header parsing
+				break;
+			}
+		}
 
-        if (Match(TokenType::_int))
-        {
-            base.kind = Type::Kind::Int;
-        }
-        else if (Match(TokenType::_bool))
-        {
-            base.kind = Type::Kind::Bool;
-        }
-        else if (Match(TokenType::_void))
-        {
-            base.kind = Type::Kind::Void;
-
-        }
-        else
-        {
-            return std::nullopt;
-        }
-
+		if (!type_found || !base.base_type) {
+			return std::nullopt;
+		}
         auto declarator = ParseDeclarator();
 
-        auto b = std::make_shared<Type>(base);
-        auto type = BuildType(b, declarator.modifier.get());
+        auto type = BuildType(base, declarator.modifier.get());
 
         return ParsedType{
             std::move(type),
@@ -1026,23 +1044,43 @@ private:
         Declarator decl;
 
         // Count prefix pointers
-        size_t pointer_count = 0;
-        while (Match(TokenType::star))
-        {
-            pointer_count++;
-        }
+		struct PointerInfo {
+			bool is_const = false;
+			bool is_volatile = false;
+		};
+		std::vector<PointerInfo> pointers;
 
+		while (Match(TokenType::star))
+		{
+			PointerInfo ptr_info;
+			// Check for qualifiers right after the '*' ("* const" or "* volatile")
+			while (true) {
+				if (Match(TokenType::_const)) {
+					ptr_info.is_const = true;
+				}
+				else if (Match(TokenType::_volatile)) {
+					ptr_info.is_volatile = true;
+				}
+				else {
+					break;
+				}
+			}
+			pointers.push_back(ptr_info);
+		}
+        
         // Parse identifier/group and postfix suffixes
         decl = ParseDirectDeclarator();
 
         // Wrap prefix pointers around the direct declarator modifier chain
-        for (size_t i = 0; i < pointer_count; ++i)
-        {
-            auto ptr = std::make_unique<DeclaratorModifier>();
-            ptr->kind = DeclaratorModifier::Kind::Pointer;
+		for (const auto& ptr_info : pointers)
+		{
+			auto ptr = std::make_unique<DeclaratorModifier>();
+			ptr->kind = DeclaratorModifier::Kind::Pointer;
+			ptr->is_const = ptr_info.is_const;
+			ptr->is_volatile = ptr_info.is_volatile;
 
-            WrapModifier(decl.modifier, std::move(ptr));
-        }
+			WrapModifier(decl.modifier, std::move(ptr));
+		}
 
         return decl;
     }
@@ -1085,18 +1123,18 @@ private:
         return decl;
     }
 
-    std::shared_ptr<Type> BuildType(
-        std::shared_ptr<Type> base_type,
+    QualifiedType BuildType(
+        const QualifiedType& base_type,
         const DeclaratorModifier* mod)
     {
         if (!mod) return base_type;
 
         switch (mod->kind) {
         case DeclaratorModifier::Kind::Pointer:
-            return BuildType(Type::MakePointer(base_type), mod->child.get());
+            return BuildType(QualifiedType::MakePointer(base_type, Modifier{mod->is_const, mod->is_volatile}), mod->child.get());
 
         case DeclaratorModifier::Kind::Array:
-            return BuildType(Type::MakeArray(base_type, mod->array_size), mod->child.get());
+            return BuildType(QualifiedType::MakeArray(base_type, mod->array_size), mod->child.get());
         }
 
         return base_type;

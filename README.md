@@ -9,7 +9,7 @@
 > **CForge** is an experimental Linux C compiler inspired by GCC. Its multi-stage pipeline includes:
 >
 > - **Front-End:** Tokenization (**Lexer**), Abstract Syntax Tree (**AST**) generation, and Semantic Analysis for type checking and decoration.
-> - **Middle-End & Optimizations:** Constant folding and dead-code reduction, followed by Intermediate Representation (**IR**) lowering, Control Flow Graph (**CFG**) analysis, and linear-scan register allocation.
+> - **Middle-End & Optimizations:** Constant folding , followed by Intermediate Representation (**IR**) lowering, Control Flow Graph (**CFG**) analysis, and linear-scan register allocation.
 > - **Back-End:** Native x86-64 assembly generation, automated NASM compilation, and GNU linking (`ld`).
 
 ---
@@ -20,19 +20,21 @@
 
 * **Data Types & Memory Model**
 
-* **Primitives:** Core signed integers (`int`)
+* **Global variables**
 
-* **Pointers:** Full pointer arithmetic, pointer subtraction, and dereferencing
+* **Primitives:** Core signed & const integers (`int`)
 
-* **Arrays:** Single and multi-dimensional arrays, array parameters, and pointers to arrays
+  * **Pointers:** Full pointer arithmetic, pointer subtraction, and dereferencing
+
+  * **Arrays:** Single and multi-dimensional arrays, array parameters, and pointers to arrays
 
 * **Control Flow & Functions**
 
-* **Branching:** Conditional execution with `if` and `else` blocks
+  * **Branching:** Conditional execution with `if` and `else` blocks
 
-* **Iteration:** Stateful loops via `while` and `for` constructs
+  * **Iteration:** Stateful loops via `while` and `for` constructs
 
-* **Control Flow Modifiers:** Native `break` and `continue` statements
+  * **Control Flow Modifiers:** Native `break` and `continue` statements
 
 * **Subroutines:** Function definitions, argument passing, and automated inlining
 

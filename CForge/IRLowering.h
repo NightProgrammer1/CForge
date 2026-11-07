@@ -13,40 +13,22 @@ public:
 	{
 		IRProgram irTree;
 
-
-		for (const auto& stat : ast.global_space.statements) {
-			statements.clear();
-			LowerStatement(*stat);
-		}
-		for (const auto& func : ast.functions)
+		for (const auto& item : ast.items)
 		{
-			statements.clear();
-			IRFunction irFunction;
-
-			irFunction.name = func.name;
-			irFunction.returnType = func.retType;
-			irFunction.stackSize = func.stack_size;
-			for (const auto& parameter : func.parameters)
+			if (auto func = std::get_if<NodeFunction*>(&item.decl))
 			{
-				irFunction.parameters.push_back(Register::VReg(parameter.id, TypeInfo::GetTypeSize(*parameter.type)));
+				ParseFunction(irTree, *func);
 			}
-			for (const auto& stat : func.body->statements) {
-				LowerStatement(*stat);
-			}
-
-
-			if (TypeInfo::IsVoid(func.retType))
+			else if (auto var = std::get_if<NodeStatementVar*>(&item.decl))
 			{
-				Emit(IRStatementReturn{ nullptr });
-
+				ParseGlobalVar(irTree, *var);
 			}
-			irFunction.statements = std::move(statements);
-			irTree.functions.push_back(std::move(irFunction));
 		}
-
-
 		return irTree;
 	}
+
+
+	
 private:
 	
 	IRExpr* LowerExpr(const NodeExpr& expr, ExprContext ctx = ExprContext::RValue)
@@ -68,18 +50,34 @@ private:
 			}
 			IRExpr* operator()(const NodeExprIdent& ident)
 			{
+				auto type = ident.symbol->type;
 
+				if (ident.symbol->isGlobal)
+				{
+					auto object = irLowering->_allocator.new_object<IRExpr>(
+						IRExprGlobal{ .name = ident.symbol->name },
+						ident.type
+					);
+
+					if (TypeInfo::IsArray(ident.type))
+					{
+						return irLowering->_allocator.new_object<IRExpr>(
+							IRExprAddressOf{ object }, type
+						);
+					}
+
+					return object;
+				}
 				if (ident.symbol->stackOffset == 0)
 				{
 					return irLowering->GetTemp(ident.id, ident.type);
 				}
 
-
-				auto type = ident.symbol->type;
+				
 				Register::StackObject object;
 				object.id = ident.symbol->id;
-				object.size = TypeInfo::GetTypeSize(*type);
-				object.alignment = TypeInfo::GetTypeAlignment(*type);
+				object.size = TypeInfo::GetTypeSize(type);
+				object.alignment = TypeInfo::GetTypeAlignment(type);
 				object.offset = ident.symbol->stackOffset;
 
 
@@ -96,7 +94,7 @@ private:
 				return irLowering->_allocator.new_object<IRExpr>(IRExprStackObject{ object }, type);
 
 			}
-			IRExpr* operator()(const NodeExprVoid& _void)
+			IRExpr* operator()(const NodeExprVoid&)
 			{
 
 				return nullptr;
@@ -117,18 +115,18 @@ private:
 				{
 					if (leftPointer && !rightPointer)
 					{
-						if (auto baseType = leftInfo->element)
+						if (auto baseType = leftInfo.base_type->element)
 						{
-							int elemSize = static_cast<int>(TypeInfo::GetTypeSize(*baseType));
+							auto elemSize = static_cast<int>(TypeInfo::GetTypeSize(baseType));
 							auto sizeExpr = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ elemSize });
 							right = irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenToBinaryOp(TokenType::star), right, sizeExpr }, expr.type);
 						}
 					}
 					else if (!leftPointer && rightPointer)
 					{
-						if (auto baseType = rightInfo->element)
+						if (auto baseType = rightInfo.base_type->element)
 						{
-							int elemSize = static_cast<int>(TypeInfo::GetTypeSize(*baseType));
+							auto elemSize = static_cast<int>(TypeInfo::GetTypeSize(baseType));
 							auto sizeExpr = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ elemSize });
 							left = irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenToBinaryOp(TokenType::star), left, sizeExpr }, expr.type);
 						}
@@ -138,9 +136,9 @@ private:
 				else if (binary.op == TokenType::sub)
 				{
 					if (leftPointer && !rightPointer) {
-						if (auto baseType = leftInfo->element)
+						if (auto baseType = leftInfo.base_type->element)
 						{
-							int elemSize = static_cast<int>(TypeInfo::GetTypeSize(*baseType));
+							auto elemSize = static_cast<int>(TypeInfo::GetTypeSize(baseType));
 							auto sizeExpr = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ elemSize });
 							right = irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenToBinaryOp(TokenType::star), right, sizeExpr }, expr.type);
 						}
@@ -151,7 +149,7 @@ private:
 						auto diff = irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenToBinaryOp(TokenType::sub), left, right }, expr.type);
 						if (auto baseType = TypeInfo::GetBaseType(leftInfo))
 						{
-							int elemSize = static_cast<int>(TypeInfo::GetTypeSize(*leftInfo->element));
+							int elemSize = static_cast<int>(TypeInfo::GetTypeSize(leftInfo.base_type->element));
 							auto sizeExpr = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ elemSize });
 							return irLowering->_allocator.new_object<IRExpr>(IRExprBinop{ TokenToBinaryOp(TokenType::div), diff, sizeExpr }, expr.type);
 						}
@@ -220,9 +218,9 @@ private:
 
 
 					IRExpr* result = nullptr;
-					if (exprType && TypeInfo::IsPointer(exprType) && exprType->element)
+					if (exprType && TypeInfo::IsPointer(exprType) && exprType.base_type->element)
 					{
-						if (TypeInfo::IsArray(exprType->element))
+						if (TypeInfo::IsArray(exprType.base_type->element))
 						{
 							// Dereferencing a pointer-to-array yields an array lvalue.
 							return address;
@@ -245,13 +243,13 @@ private:
 				{
 					auto target = irLowering->LowerExpr(*un.expr, ExprContext::LValue);
 
-					size_t typeSize = TypeInfo::GetTypeSize(*un.expr->type);
+					size_t typeSize = TypeInfo::GetTypeSize(un.expr->type);
 
 					IRExpr* oldTemp = irLowering->CreateTemp(typeSize);
 
 					IRExpr* stride = nullptr;
 					if (TypeInfo::IsPointer(un.expr->type)) {
-						size_t elementSize = TypeInfo::GetTypeSize(*un.expr->type->element);
+						size_t elementSize = TypeInfo::GetTypeSize(un.expr->type.base_type->element);
 						stride = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ static_cast<int>(elementSize) });
 					}
 					else {
@@ -273,7 +271,7 @@ private:
 				{
 					auto target = irLowering->LowerExpr(*un.expr, ExprContext::LValue);
 					IRExpr* stride = nullptr;
-					size_t elementSize = TypeInfo::GetTypeSize(*un.expr->type->element);
+					size_t elementSize = TypeInfo::GetTypeSize(un.expr->type.base_type->element);
 					if (TypeInfo::IsPointer(un.expr->type)) {
 						stride = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ static_cast<int>(elementSize) });
 					}
@@ -294,7 +292,7 @@ private:
 				{
 					auto target = irLowering->LowerExpr(*un.expr, ExprContext::LValue);
 					IRExpr* stride = nullptr;
-					size_t elementSize = TypeInfo::GetTypeSize(*un.expr->type->element);
+					size_t elementSize = TypeInfo::GetTypeSize(un.expr->type.base_type->element);
 					if (TypeInfo::IsPointer(un.expr->type)) {
 						stride = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ static_cast<int>(elementSize) });
 					}
@@ -315,17 +313,17 @@ private:
 				{
 					auto target = irLowering->LowerExpr(*un.expr, ExprContext::LValue);
 
-					size_t typeSize = TypeInfo::GetTypeSize(*un.expr->type);
+					size_t typeSize = TypeInfo::GetTypeSize(un.expr->type);
 
 					IRExpr* oldTemp = irLowering->CreateTemp(typeSize);
 
 					IRExpr* stride = nullptr;
-					size_t elementSize = TypeInfo::GetTypeSize(*un.expr->type->element);
+					size_t elementSize = TypeInfo::GetTypeSize(un.expr->type.base_type->element);
 					if (TypeInfo::IsPointer(un.expr->type)) {
-						stride = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ static_cast<int>(elementSize) }, Type::MakeInt());
+						stride = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ static_cast<int>(elementSize) },QualifiedType::MakeInt());
 					}
 					else {
-						stride = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ 1 }, Type::MakeInt());
+						stride = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ 1 },QualifiedType::MakeInt());
 					}
 
 					irLowering->Emit(IRStatementMove{ oldTemp, target });
@@ -388,7 +386,7 @@ private:
 				auto arrayExpr = access.array;
 
 				auto array = irLowering->LowerExpr(*arrayExpr);
-				auto size = TypeInfo::GetBaseType(arrayExpr->type)->Size();
+				auto size = TypeInfo::GetBaseType(arrayExpr->type).Size();
 				IRExpr* base = array;
 
 
@@ -405,11 +403,11 @@ private:
 					}
 					else {
 						auto* strideExpr = irLowering->_allocator.new_object<IRExpr>(
-							IRExprConst{ static_cast<size_t>(stride) }, Type::MakeInt()
+							IRExprConst{ static_cast<size_t>(stride) },QualifiedType::MakeInt()
 						);
 
 						dimOffset = irLowering->_allocator.new_object<IRExpr>(
-							IRExprBinop{ TokenToBinaryOp(TokenType::star), index, strideExpr }, Type::MakePointer(Type::MakeInt())
+							IRExprBinop{ BinaryOp::Mul, index, strideExpr },QualifiedType::MakePointer(QualifiedType::MakeInt())
 						);
 					}
 
@@ -418,14 +416,14 @@ private:
 					}
 					else {
 						totalOffset = irLowering->_allocator.new_object<IRExpr>(
-							IRExprBinop{ TokenToBinaryOp(TokenType::plus), totalOffset, dimOffset }, Type::MakePointer(Type::MakeInt())
+							IRExprBinop{ BinaryOp::Add, totalOffset, dimOffset }, QualifiedType::MakePointer(QualifiedType::MakeInt())
 						);
 					}
 				}
 				if (totalOffset)
 				{
 					base = irLowering->_allocator.new_object<IRExpr>(
-						IRExprBinop{ TokenToBinaryOp(TokenType::plus), base, totalOffset }, Type::MakePointer(Type::MakeInt())
+						IRExprBinop{ BinaryOp::Add, base, totalOffset },QualifiedType::MakePointer(QualifiedType::MakeInt())
 					);
 				}
 				size_t totalDimensions = TypeInfo::GetArrayDimensions(arrayExpr->type).size();
@@ -434,7 +432,7 @@ private:
 					return base;
 				}
 
-				size_t elementSize = TypeInfo::GetTypeSize(*access.array->type);
+				size_t elementSize = TypeInfo::GetTypeSize(access.array->type);
 
 
 				if (ctx == ExprContext::RValue) {
@@ -476,13 +474,26 @@ private:
 				// All variables are stored directly into stack
 				Register::StackObject stackObject;
 				stackObject.id = var.id;
-				stackObject.size = TypeInfo::GetTypeSize(*var.element_type);
-				stackObject.alignment = TypeInfo::GetTypeAlignment(*var.element_type);
+				stackObject.size = TypeInfo::GetTypeSize(var.type);
+				stackObject.alignment = TypeInfo::GetTypeAlignment(var.type);
 				stackObject.offset = var.symbol->stackOffset;
 
 				auto dst = irLowering->_allocator.new_object<IRExpr>(
-					IRExprStackObject{ stackObject }, var.element_type
+					IRExprStackObject{ stackObject }, var.type
 				);
+
+				
+				if (TypeInfo::IsArray(var.type) && var.initializer) {
+					size_t offset = 0;
+					irLowering->LowerArrayInitializer(
+						dst,
+						*var.initializer,
+						offset,
+						TypeInfo::GetTypeSize(TypeInfo::GetBaseType(var.type))
+					);
+					return;
+				}
+
 				if (var.initializer) {
 					auto src = irLowering->LowerExpr(*var.initializer);
 
@@ -593,29 +604,7 @@ private:
 
 				irLowering->Emit(IRStatementMove{ dst, src });
 			}
-			void operator()(NodeStatementArray& arr)
-			{
-				Register::StackObject a;
-				a.id = arr.id;
-				a.size = TypeInfo::GetTotalArraySize(arr.element_type);
-				a.alignment = TypeInfo::GetTypeAlignment(*arr.element_type);
-				a.offset = arr.symbol->stackOffset;
-
-				auto stackObject =
-					irLowering->_allocator.new_object<IRExpr>(
-						IRExprStackObject{ a }, arr.element_type
-					);
-				
-				if(arr.initializer) {
-					size_t offset = 0;
-					irLowering->LowerArrayInitializer(
-						stackObject,
-						*arr.initializer,
-						offset,
-						TypeInfo::GetTypeSize(*TypeInfo::GetBaseType(arr.element_type))
-					);
-				}
-			}
+			
 		} visitor{ this };
 
 		std::visit(visitor, stat.stat);
@@ -644,7 +633,7 @@ private:
 		}
 
 		auto address = _allocator.new_object<IRExpr>(
-			IRExprAddressOf{ base }, Type::MakePointer(Type::MakeInt())
+			IRExprAddressOf{ base },QualifiedType::MakePointer(QualifiedType::MakeInt())
 		);
 
 		auto offsetExpr = _allocator.new_object<IRExpr>(
@@ -652,7 +641,7 @@ private:
 				ConstValue::Scalar{
 					static_cast<int>(offset)
 				}
-			}, Type::MakeInt()
+			},QualifiedType::MakeInt()
 		);
 
 		auto elementAddress =
@@ -661,12 +650,12 @@ private:
 					TokenToBinaryOp(TokenType::plus),
 					address,
 					offsetExpr,
-				}, Type::MakePointer(Type::MakeInt())
+				},QualifiedType::MakePointer(QualifiedType::MakeInt())
 			);
 
 		auto destination =
 			_allocator.new_object<IRExpr>(
-				IRExprMem{ elementAddress }, Type::MakePointer(Type::MakeInt())
+				IRExprMem{ elementAddress },QualifiedType::MakePointer(QualifiedType::MakeInt())
 			);
 
 		auto src = LowerExpr(initializer);
@@ -683,12 +672,12 @@ private:
 		auto arrayDimensions = TypeInfo::GetArrayDimensions(arrayType);
 
 		if (dim >= arrayDimensions.size()) {
-			auto elementType = arrayType->element;
-			return TypeInfo::GetTypeSize(*elementType);
+			auto elementType = arrayType.base_type->element;
+			return TypeInfo::GetTypeSize(elementType);
 		}
 
 		auto scalarType = TypeInfo::GetBaseType(arrayType);
-		size_t stride = TypeInfo::GetTypeSize(*scalarType);
+		size_t stride = TypeInfo::GetTypeSize(scalarType);
 
 		
 		for (size_t i = dim + 1; i < arrayDimensions.size(); ++i) {
@@ -697,7 +686,7 @@ private:
 
 		return stride;
 	}
-	IRExpr* GetTemp(const size_t& id, const std::shared_ptr<Type>& type)
+	IRExpr* GetTemp(const size_t& id, const QualifiedType& type)
 	{
 		auto vreg = Register::VReg{ id };
 		return _allocator.new_object<IRExpr>(IRExprTemp{ vreg }, type);
@@ -746,11 +735,46 @@ private:
 		continueLabels.pop_back();
 		breakLabels.pop_back();
 	}
+	void ParseGlobalVar(IRProgram& tree, const NodeStatementVar* var)
+	{
+		IRGlobalVariable globalVar;
+		globalVar.name = var->name;
+		globalVar.type = var->type;
+		globalVar.id = var->id;
+		// Evaluate its compile-time initial value if present
+		if (var->initializer) {
+			globalVar.initial_value = var->compiled_constant;
+		}
+		tree.globals.push_back(std::move(globalVar));
+	}
+	void ParseFunction(IRProgram& tree, const NodeFunction* func)
+	{
+		statements.clear();
+		IRFunction irFunction;
 
+		irFunction.name = func->name;
+		irFunction.returnType = func->retType;
+		irFunction.stackSize = func->stack_size;
+		for (const auto& parameter : func->parameters)
+		{
+			irFunction.parameters.push_back(Register::VReg(parameter.id, TypeInfo::GetTypeSize(parameter.type)));
+		}
+		for (const auto& stat : func->body->statements) {
+			LowerStatement(*stat);
+		}
+
+
+		if (TypeInfo::IsVoid(func->retType))
+		{
+			Emit(IRStatementReturn{ nullptr });
+
+		}
+		irFunction.statements = std::move(statements);
+		tree.functions.push_back(std::move(irFunction));
+	}
 	std::vector<std::string> breakLabels;
 	std::vector<std::string> continueLabels;
 	const NodeProg& ast;
-	Mir ir;
 	std::vector<IRStatement*> statements;
 	std::pmr::polymorphic_allocator<char>& _allocator;
 	int temp_counter = 0;

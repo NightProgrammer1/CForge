@@ -120,10 +120,11 @@ struct MachineOperand
     {
         return { VRegOperand(reg), Kind::VReg, static_cast<Memory::OperandSize>(reg.size) };
     }
-    static MachineOperand Label(const std::string& label)
+    static MachineOperand Label(const std::string& label, Memory::OperandSize size = Memory::OperandSize::Dword)
     {
-        return { LabelOperand(label), Kind::Label};
+        return { LabelOperand(label), Kind::Label, size};
     }
+	
     static MachineOperand PhysicalReg(const Register::Reg& reg, Memory::OperandSize size = Memory::OperandSize::Dword, bool isSizeSpecified = false)
     {
         
@@ -178,7 +179,8 @@ struct MachineFunction
 
 struct MachineProgram
 {
-    std::vector<MachineFunction> functions;
+    std::vector<IRGlobalVariable> globals;
+	std::vector<MachineFunction> functions;
 };
 class PreMachineIR
 {
@@ -188,50 +190,52 @@ public:
     {
 
 		MachineProgram machProg;
-        for (auto& function : cfg.functions)
-        {
-            MachineFunction machFunc;
-            machFunc.parameters = function.parameters;
-            machFunc.stack_size = function.stackSize;
-           
-            for (auto& block : function.blocks)
-            {
-                ins.clear();
-                for (size_t i = 0; i < block.ins.size(); i++)
-                {
-                    LowerTac(block.ins[i]);
-                }
 
-                machFunc.blocks.emplace_back(block.label, ins);
-                
-            }
+        machProg.globals = std::move(cfg.globals);
+		for (const auto& function : cfg.functions)
+		{
+			MachineFunction machFunc;
+			machFunc.parameters = function.parameters;
+			machFunc.stack_size = function.stackSize;
+
+			for (auto& block : function.blocks)
+			{
+				ins.clear();
+				for (auto& in : block.ins)
+				{
+					LowerTac(in);
+				}
+
+				machFunc.blocks.emplace_back(block.label, ins);
+			}
 			machFunc.cfg = function;
-            machFunc.name = function.name;
-            ins.clear();
-            machProg.functions.push_back(std::move(machFunc));
-        }
-
-
+			machFunc.name = function.name;
+			ins.clear();
+			machProg.functions.push_back(std::move(machFunc));
+			
+		}
       
         return machProg;
     }
   
 private:
 
-    MachineOperand LowerTacExpr(IRExpr* expr)
+    std::optional<MachineOperand> LowerTacExpr(IRExpr* expr)
     {
+		using namespace Memory;
 
-        using namespace Memory;
+        if (!expr) return std::nullopt;
+
         if (auto temp = std::get_if<IRExprTemp>(&expr->expr))
         {
             auto vreg = temp->virtualRegister;
-            size_t bytes = expr->type ? expr->type->Size() : 8;
+            size_t bytes = expr->type ? expr->type.Size() : 8;
             return MachineOperand::VReg(vreg, static_cast<OperandSize>(bytes));
         }
         else if (auto mem = std::get_if<IRExprMem>(&expr->expr))
         {
             return MachineOperand::Memory(
-                LowerTacExpr(mem->address), expr->type->Size()
+                *LowerTacExpr(mem->address), expr->type.Size()
             );
         }
         else if (auto constant = std::get_if<IRExprConst>(&expr->expr))
@@ -243,15 +247,21 @@ private:
         }
         else if (auto addressOf = std::get_if<IRExprAddressOf>(&expr->expr))
         {
-            auto loweredAdd = LowerTacExpr(addressOf->object);
-            loweredAdd.size = static_cast<OperandSize>(expr->type->Size());
-            return loweredAdd;
+            if (auto loweredAdd = LowerTacExpr(addressOf->object)) {
+                loweredAdd->size = static_cast<OperandSize>(expr->type.Size());
+                return loweredAdd;
+            }
         }
         else if (auto object = std::get_if<IRExprStackObject>(&expr->expr))
         {
-            return MachineOperand::StackSlot(object->id.offset, expr->type->Size());
+            return MachineOperand::StackSlot(object->id.offset, expr->type.Size());
+        }
+        else if (auto global = std::get_if<IRExprGlobal>(&expr->expr))
+        {
+            return MachineOperand::Memory(MachineOperand::Label("rel " + global->name, static_cast<OperandSize>(expr->type.Size())));
         }
 
+        return std::nullopt;
     }
 
 
@@ -269,6 +279,10 @@ private:
                 auto left = ir.LowerTacExpr(bin.left);
                 auto right = ir.LowerTacExpr(bin.right);
 
+				assert(dst.has_value() && "ICE: Failed to lower destination in TACBinop");
+				assert(left.has_value() && "ICE: Failed to lower left in TACBinop");
+				assert(right.has_value() && "ICE: Failed to lower right in TACBinop");
+
                 // =========================================================================
                 // 1. Relational Operations (==, !=, <, <=, >, >=)
                 // =========================================================================
@@ -276,24 +290,24 @@ private:
                     MachineInstruction cmpInst;
 
                     bool is_right_zero = false;
-                    if (auto im = std::get_if<ImmediateOperand>(&right.operand)) {
+                    if (auto im = std::get_if<ImmediateOperand>(&right->operand)) {
                         is_right_zero = std::visit([](auto&& arg) -> bool { return arg == 0; }, im->value);
                     }
 
                     // Optimization: Use TEST reg, reg when checking (reg == 0) or (reg != 0)
                     if (is_right_zero && (*op == RelationalOp::Equal || *op == RelationalOp::NotEqual)) {
                         cmpInst.opcode = MachineOpcode::TEST;
-                        cmpInst.operands = { left, left };
+                        cmpInst.operands = { *left, *left };
                     }
                     else {
                         cmpInst.opcode = MachineOpcode::CMP;
-                        cmpInst.operands = { left, right };
+                        cmpInst.operands = { *left, *right };
                     }
                     ir.Emit(cmpInst);
 
                     MachineInstruction setInst;
-                    setInst.opcode = ir.GetMachineOpcode(*op, bin.dst->type->is_signed);
-                    setInst.operands = { dst }; // dst must be an 8-bit byte register/mem
+                    setInst.opcode = ir.GetMachineOpcode(*op, bin.dst->type.base_type->is_signed);
+                    setInst.operands = { *dst }; // dst must be an 8-bit byte register/mem
                     ir.Emit(setInst);
                 }
 
@@ -301,14 +315,14 @@ private:
                 // Binary Operations (+, -, *, /, %, &, |, ^, <<, >>)
                 // =========================================================================
                 else if (auto op = std::get_if<BinaryOp>(&bin.op)) {
-                    bool isSigned = bin.dst->type->is_signed;
+                    bool isSigned = bin.dst->type.base_type->is_signed;
 
                     // Special Case: Division (/) and Modulo (%)
                     if (*op == BinaryOp::Div || *op == BinaryOp::Mod) {
                         auto rax = MachineOperand::PhysicalReg(Register::Reg::RAX);
                         auto rdx = MachineOperand::PhysicalReg(Register::Reg::RDX);
 
-                        ir.Emit(MachineInstruction{ MachineOpcode::MOV, { rax, left } });
+                        ir.Emit(MachineInstruction{ MachineOpcode::MOV, { rax, *left } });
 
                         if (isSigned) {
                             ir.Emit(MachineInstruction{ MachineOpcode::CQO, {} }); // RAX -> RDX:RAX
@@ -318,15 +332,15 @@ private:
                         }
 
                         MachineOpcode divOp = isSigned ? MachineOpcode::IDIV : MachineOpcode::DIV;
-                        ir.Emit(MachineInstruction{ divOp, { right } });
+                        ir.Emit(MachineInstruction{ divOp, { *right } });
 
                         MachineOperand resultReg = (*op == BinaryOp::Div) ? rax : rdx;
-                        ir.Emit(MachineInstruction{ MachineOpcode::MOV, { dst, resultReg } });
+                        ir.Emit(MachineInstruction{ MachineOpcode::MOV, { *dst, resultReg } });
                     }
                     else {
                         MachineInstruction arithInst;
                         arithInst.opcode = ir.GetMachineOpcode(*op, isSigned);
-                        arithInst.operands = { dst, left, right };
+                        arithInst.operands = { *dst, *left, *right };
                         ir.Emit(arithInst);
                     }
                 }
@@ -338,31 +352,44 @@ private:
 
                 code.opcode = MachineOpcode::MOV;
 
-                code.operands.push_back(dstOp);
-                code.operands.push_back(srcOp);
+				assert(dstOp.has_value() && "ICE: Failed to lower destination in TACMove");
+				assert(srcOp.has_value() && "ICE: Failed to lower source in TACMove");
+
+
+                code.operands.push_back(*dstOp);
+                code.operands.push_back(*srcOp);
                 ir.Emit(code);
             }
-            void operator()(const TACAddressOf& address){
-                MachineInstruction code;
+			void operator()(const TACAddressOf& address) {
+				MachineInstruction code;
 
-                code.opcode = MachineOpcode::LEA;
-                code.operands.push_back(ir.LowerTacExpr(address.dst));
-                code.operands.push_back(ir.LowerTacExpr(address.object));
+				code.opcode = MachineOpcode::LEA;
 
-                ir.Emit(code);
-            }
+				auto dst = ir.LowerTacExpr(address.dst);
+				auto obj = ir.LowerTacExpr(address.object);
+
+				assert(dst.has_value() && "ICE: Failed to lower destination in TACAddressOf");
+				assert(obj.has_value() && "ICE: Failed to lower object in TACAddressOf");
+
+				code.operands.push_back(*dst);
+				code.operands.push_back(*obj);
+
+				ir.Emit(code);
+			}
             void operator()(const TACLoad& load) {
                 MachineInstruction code;
                 auto dstOp = ir.LowerTacExpr(load.dst);
                 auto srcOp = ir.LowerTacExpr(load.src);
 
+				assert(dstOp.has_value() && "ICE: Failed to lower destination in TACLoad");
+				assert(srcOp.has_value() && "ICE: Failed to lower source in TACLoad");
 
-                OperandSize accessSize = dstOp.size;
+                OperandSize accessSize = dstOp->size;
                 auto memOp = MachineOperand::Memory(
-                    srcOp,
+                    *srcOp,
                     accessSize, false
                 );
-                if (accessSize == OperandSize::Dword && dstOp.size == OperandSize::Qword)
+                if (accessSize == OperandSize::Dword && dstOp->size == OperandSize::Qword)
                 {
                     code.opcode = MachineOpcode::MOVSXD;
 
@@ -372,7 +399,7 @@ private:
                     code.opcode = MachineOpcode::MOV;
 
                 }
-                code.operands.push_back(dstOp);
+                code.operands.push_back(*dstOp);
                 code.operands.push_back(memOp);
                 ir.Emit(code);
 
@@ -381,11 +408,15 @@ private:
                 MachineInstruction code;
 
                 auto address = ir.LowerTacExpr(move.dst);
+                auto src = ir.LowerTacExpr(move.src);
+
+				assert(address.has_value() && "ICE: Failed to lower destination expression in TACMoveMem");
+				assert(src.has_value() && "ICE: Failed to lower source expression in TACMoveMem");
+
                 code.opcode = MachineOpcode::STORE;
 
 
-                auto src = ir.LowerTacExpr(move.src);
-                auto dest = MachineOperand::Memory(address, src.size); // destination size is always the same as source size
+                auto dest = MachineOperand::Memory(*address, src->size); // destination size is always the same as source size
 
 
                 code.operands.push_back(
@@ -393,7 +424,7 @@ private:
                 );
 
                 code.operands.push_back(
-                    src
+                    *src
                 );
 
                 ir.Emit(code);
@@ -401,9 +432,11 @@ private:
             void operator()(const TACCJump& cjump) {
                
                 auto cond = ir.LowerTacExpr(cjump.cond);
+				assert(cond.has_value() && "ICE: Failed to lower condition expression in TACCJump");
+
                 ir.Emit(MachineInstruction{
                     MachineOpcode::TEST,
-                    { cond}
+                    { *cond}
                     });
                 ir.Emit(MachineInstruction{
                     ir.GetJumpOpcode(RelationalOp::Equal),
@@ -416,21 +449,23 @@ private:
                 auto left = ir.LowerTacExpr(cjump.left);
                 auto right = ir.LowerTacExpr(cjump.right);
 
+				assert(left.has_value() && "ICE: Failed to left expression in TACRelationalCJump");
+				assert(right.has_value() && "ICE: Failed to right expression in TACRelationalCJump");
 
                 MachineInstruction cmpInst;
 
                 bool is_right_zero = false;
-                if (auto im = std::get_if<ImmediateOperand>(&right.operand)) {
+                if (auto im = std::get_if<ImmediateOperand>(&right->operand)) {
                     is_right_zero = std::visit([](auto&& arg) -> bool { return arg == 0; }, im->value);
                 }
 
                 if (is_right_zero && (cjump.op == RelationalOp::Equal || cjump.op == RelationalOp::NotEqual)) {
                     cmpInst.opcode = MachineOpcode::TEST;
-                    cmpInst.operands = { left, left };
+                    cmpInst.operands = { *left, *left };
                 }
                 else {
                     cmpInst.opcode = MachineOpcode::CMP;
-                    cmpInst.operands = { left, right };
+                    cmpInst.operands = { *left, *right };
                 }
                 ir.Emit(cmpInst);
 
@@ -466,12 +501,16 @@ private:
                 MachineOperand destination;
                 if (call.dst)
                 {
-                    destination = ir.LowerTacExpr(call.dst);
+                    auto a = ir.LowerTacExpr(call.dst);
+					assert(a.has_value() && "ICE: Failed to lower destination expression in TACCall");
+                    destination = *a;
                 }
                 // Evaluate each argument into a temporary Virtual Register / Operand
                 std::vector<MachineOperand> evaluatedArgs;
                 for (const auto& arg : call.args) {
-                    evaluatedArgs.push_back(ir.LowerTacExpr(arg));
+                    auto a = ir.LowerTacExpr(arg);
+					assert(a.has_value() && "ICE: Failed to lower argument expression in TACCall");
+                    evaluatedArgs.push_back(*a);
                 }
 
                 // Emit explicit MOV instructions to copy evaluated args into ABI registers
@@ -517,8 +556,10 @@ private:
                 code.opcode = MachineOpcode::MOV;
                 if (ret.value) {
                     auto valueOperand = ir.LowerTacExpr(ret.value);
-                    code.operands.push_back(MachineOperand::PhysicalReg(Register::Reg::RAX, GetDestinationSize(valueOperand.size)));
-                    code.operands.push_back(valueOperand);
+					assert(valueOperand.has_value() && "ICE: Failed to lower return expression in TACReturn");
+
+                    code.operands.push_back(MachineOperand::PhysicalReg(Register::Reg::RAX, GetDestinationSize(valueOperand->size)));
+                    code.operands.push_back(*valueOperand);
                     ir.Emit(code);
                 }
 

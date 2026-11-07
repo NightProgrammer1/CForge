@@ -365,3 +365,8 @@ FodyWeavers.xsd
 build/
 bin/
 out/
+/CForge/Makefile
+/CForge/cmake_install.cmake
+/Makefile
+/launch.vs.json
+/CMakeCache.txt

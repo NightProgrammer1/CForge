@@ -93,7 +93,16 @@ namespace Memory
 		Qword = 8  // pointers, 64-bit ints
 	};
 
-	constexpr char* GetSizeSpecifier(const OperandSize& size) {
+	constexpr const char* GetDataDirective(const OperandSize& size) {
+		switch (size) {
+		case OperandSize::Byte:  return "db";
+		case OperandSize::Word:  return "dw";
+		case OperandSize::Dword: return "dd";
+		case OperandSize::Qword: return "dq";
+		}
+		return "dd"; 
+	}
+	constexpr const char* GetSizeSpecifier(const OperandSize& size) {
 		switch (size) {
 		case OperandSize::Byte:  return "byte";
 		case OperandSize::Word:  return "word";

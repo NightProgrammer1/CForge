@@ -8,16 +8,17 @@
 
 struct Symbol {
     std::string name;
-    std::shared_ptr<Type> type = nullptr;
+    QualifiedType type;
     size_t id = 0;
     size_t stackOffset = 0;
     bool isAddressTaken = false;
+    bool isGlobal = false;
 
 };
 
 struct FunctionSymbol {
-    std::shared_ptr<Type> returnType;
-    std::vector<std::shared_ptr<Type>> paramTypes;
+    QualifiedType returnType;
+    std::vector<QualifiedType> paramTypes;
     bool hasBody = false;
     bool hasReturn = false;
 
@@ -44,7 +45,7 @@ public:
     }
 
    
-    bool DeclareParameter(const std::string& name, const std::shared_ptr<Type>& type_info, const size_t& id)
+    bool DeclareParameter(const std::string& name, const QualifiedType& type_info, const size_t& id)
     {
         if (scopes.empty()) return false;
 
@@ -56,17 +57,26 @@ public:
         scopes.back()[name] = std::make_shared<Symbol>(symbol);
         return true;
     }
-    bool DeclareVariable(const std::string& name, const std::shared_ptr<Type>& type_info, const size_t& id) {
+    bool DeclareVariable(const std::string& name, const QualifiedType& type_info, const size_t& id, bool globalVar = false) {
         if (scopes.empty()) return false;
 
         // Prevent redeclaration in the CURRENT scope
         if (scopes.back().contains(name)) {
             return false;
         }
-        stackOffset += AlignUp(TypeInfo::GetTypeSize(*type_info), TypeInfo::GetTypeAlignment(*type_info));
-        auto symbol = Symbol{ name, type_info, id , stackOffset };
-        
-        scopes.back()[name] = std::make_shared<Symbol>(symbol);
+        if (globalVar)
+        {
+			auto symbol = Symbol{ .name = name, .type = type_info, .id = id , .stackOffset = 0, .isAddressTaken = false, .isGlobal = true};
+			scopes.back()[name] = std::make_shared<Symbol>(symbol);
+
+            return true;
+        }
+
+
+        stackOffset += AlignUp(type_info.Size(), TypeInfo::GetTypeAlignment(type_info));
+		auto symbol = Symbol{ name, type_info, id , stackOffset };
+
+		scopes.back()[name] = std::make_shared<Symbol>(symbol);
         return true;
     }
     bool DeclareVariable(std::shared_ptr<Symbol>& symbol) {
@@ -79,7 +89,12 @@ public:
             return false;
         }
 
-        stackOffset += AlignUp(TypeInfo::GetTypeSize(*symbol->type), TypeInfo::GetTypeAlignment(*symbol->type));
+        if (symbol->isGlobal)
+        {
+			scopes.back()[symbol->name] = symbol;
+            return true;
+        }
+        stackOffset += AlignUp(symbol->type.Size(), TypeInfo::GetTypeAlignment(symbol->type));
         symbol->stackOffset = stackOffset;
         scopes.back()[symbol->name] = symbol;
         return true;
@@ -100,7 +115,7 @@ public:
     {
 		return stackOffset;
     }
-    bool DeclareFunction(const std::string& name, std::shared_ptr<Type> returnType, std::vector<std::shared_ptr<Type>> paramTypes, bool hasBody) {
+    bool DeclareFunction(const std::string& name, QualifiedType returnType, std::vector<QualifiedType> paramTypes, bool hasBody) {
         if (functions.contains(name)) {
             auto& existing = functions.at(name);
             if (existing.paramTypes != paramTypes || existing.returnType != returnType) {

@@ -223,6 +223,11 @@ struct IRExprAddressOf
 {
 	IRExpr* object;
 };
+
+struct IRExprGlobal
+{
+	std::string name;
+};
 struct IRExpr
 {
 	std::variant<IRExprConst, 
@@ -234,9 +239,10 @@ struct IRExpr
 				IRExprDereference,
 				IRExprAddressOf,
 				IRExprCall  ,
-				IRExprESEQ> expr;
+				IRExprESEQ,
+				IRExprGlobal> expr;
 
-	std::shared_ptr<Type> type;
+	QualifiedType type;
 
 };
 
@@ -295,10 +301,64 @@ typedef std::variant <
 	IRStatementCJump,
 	IRStatementLabel,
 	IRStatementReturn> AnyIRStatement;
-struct Mir
+
+
+
+struct IRGlobalVariable
 {
-	std::vector<IRStatement*> statements;
+	std::optional<ConstValue> initial_value = std::nullopt;
+	std::string name;
+	QualifiedType type;
+	size_t id{};
+	IRGlobalVariable() = default;
+	~IRGlobalVariable() = default;
+	IRGlobalVariable(const IRGlobalVariable& other) : name(other.name), id(other.id), type(other.type), initial_value(other.initial_value) {
+	}
+	IRGlobalVariable(IRGlobalVariable&& other) : name(std::move(other.name)), id(other.id), type(std::move(other.type)), initial_value(std::move(other.initial_value)) {
+	}
+	IRGlobalVariable& operator=(IRGlobalVariable&& other) {
+		if (this != &other) {
+			name = std::move(other.name);
+			id = other.id;
+			type = std::move(other.type);
+			initial_value = std::move(other.initial_value);
+		}
+
+		return *this;
+	}
+	IRGlobalVariable& operator=(const IRGlobalVariable& other) {
+		if (this != &other) {
+			name = other.name;
+			id = other.id;
+			type = other.type;
+			initial_value = other.initial_value;
+
+		}
+		return *this;
+	}
+
 };
+
+struct IRFunction
+{
+	std::string name;
+
+	QualifiedType returnType;
+
+	std::vector<Register::VReg> parameters;
+
+
+	std::vector<IRStatement*> statements;
+
+	size_t stackSize = 0;
+};
+
+struct IRProgram {
+
+	std::vector<IRGlobalVariable> globals;
+	std::vector<IRFunction> functions;
+};
+
 
 struct TACBinop
 {
@@ -391,6 +451,7 @@ struct TAC
 
 struct TACProgram
 {
+	std::vector<IRGlobalVariable> globals;
 	std::vector<TAC> functions;
 };
 
@@ -414,24 +475,7 @@ struct CFG
 
 struct CFGProgram
 {
+	std::vector<IRGlobalVariable> globals;
 	std::vector<CFG> functions;
 };
-struct IRFunction
-{
-	std::string name;
 
-	std::shared_ptr<Type> returnType;
-
-	std::vector<Register::VReg> parameters;
-
-
-	std::vector<IRStatement*> statements;
-	std::vector<BasicBlock> blocks;
-
-	size_t stackSize = 0;
-};
-
-struct IRProgram
-{
-	std::vector<IRFunction> functions;
-};

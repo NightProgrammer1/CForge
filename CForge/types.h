@@ -3,6 +3,12 @@
 #include <variant>
 #include <memory>
 #include <assert.h>
+#include <optional>
+#include <vector>
+#include <string>
+#include <iostream>
+#include <cassert>
+
 
 struct NodeExpr;
 struct Symbol;
@@ -10,36 +16,59 @@ struct Symbol;
 struct Declarator;
 struct ConstValue {
 
-    struct Pointer {
-        size_t variable_id;
-        std::vector<size_t> indices; // Tracks paths
-        int64_t element_offset = 0;
-    };
-    using Scalar = std::variant<int, size_t, double, float, bool>;
 
-    // A ConstValue is either a Scalar primitive OR an array/list of ConstValues which are compile time constant
-    std::variant<Scalar, std::vector<ConstValue>, Pointer> data;
+	
+    inline static size_t copy_count = 0;
+	struct Pointer {
+		size_t variable_id;
+		std::vector<size_t> indices; // Tracks paths
+		int64_t element_offset = 0;
+	};
+	using Scalar = std::variant<int, size_t, double, float, bool>;
+
+	// A ConstValue is either a Scalar primitive OR an array/list of ConstValues which are compile time constant
+	std::variant<Scalar, std::vector<ConstValue>, Pointer> data;
+
+	ConstValue() = default;
+
+	ConstValue(const ConstValue& other) : data(other.data) {
+		copy_count++;
+		 //std::cout << "[Tracking] ConstValue copied! Total copies: " << copy_count << "\n";
+	}
+
+    ConstValue& operator=(ConstValue&& other) {
+        if (this != &other) {
+			data = std::move(other.data);
+        }
+
+        return *this;
+    }
+	ConstValue& operator=(const ConstValue& other) {
+		if (this != &other) {
+			data = other.data;
+			copy_count++;
+			// std::cout << "[Tracking] ConstValue copy assigned! Total copies: " << copy_count << "\n";
+		}
+		return *this;
+	}
+
+	template <typename T, typename = std::enable_if_t<
+		!std::is_same_v<std::decay_t<T>, ConstValue>
+		>>
+		ConstValue(T&& val) : data(std::forward<T>(val)) {}
 
     bool is_scalar() const { return std::holds_alternative<Scalar>(data); }
     bool is_array() const { return std::holds_alternative<std::vector<ConstValue>>(data); }
 
-    void set_value_at_indices(const std::vector<size_t>& indices, const ConstValue& value, size_t start = 0)
-    {
-        auto arr = get_array();
-        if (!arr) return;
-        if (start >= indices.size()) return;
+	void set_value_at_indices(const std::vector<size_t>& indices, const ConstValue& value, size_t start = 0)
+	{
+		set_value_at_indices_impl(indices, value, start);
+	}
 
-        size_t idx = indices[start];
-        if (idx >= arr->size()) return;
-
-        if (start == indices.size() - 1) {
-            // We've reached the target depth, assign the value
-            (*arr)[idx] = value;
-        }
-        else {
-            (*arr)[idx].set_value_at_indices(indices, value, start + 1);
-        }
-    }
+	void set_value_at_indices(const std::vector<size_t>& indices, ConstValue&& value, size_t start = 0)
+	{
+		set_value_at_indices_impl(indices, std::move(value), start);
+	}
     static ConstValue* get_value_from_array(ConstValue* array, const std::vector<size_t>& indices, size_t start = 0)
     {
 
@@ -68,9 +97,20 @@ struct ConstValue {
     //Creates a default array of elemCount 
     static ConstValue create_array(size_t elemCount)
     {
-        std::vector<ConstValue> elements(elemCount);
-        return ConstValue{ elements };
+        return ConstValue{ std::vector<ConstValue>(elemCount) };
     }
+	static ConstValue create_array(const std::vector<size_t>& dims, size_t depth = 0)
+	{
+		if (depth == dims.size() - 1) {
+			return ConstValue::create_array(dims[depth]);
+		}
+		std::vector<ConstValue> innerElements;
+		innerElements.reserve(dims[depth]);
+		for (size_t i = 0; i < dims[depth]; ++i) {
+			innerElements.push_back(create_array(dims, depth + 1));
+		}
+		return ConstValue{ std::move(innerElements) };
+	}
     const Scalar& get_scalar() const { return std::get<Scalar>(data); }
     std::vector<ConstValue>* get_array() { return std::get_if<std::vector<ConstValue>>(&data); }
 
@@ -85,188 +125,258 @@ struct ConstValue {
 
     const Pointer* get_pointer() const { return std::get_if<Pointer>(&data); }
     Pointer* get_pointer() { return std::get_if<Pointer>(&data); }
+
+private:
+	template <typename T>
+    void set_value_at_indices_impl(const std::vector<size_t>& indices, T&& value, size_t start)
+    {
+        auto arr = get_array();
+        if (!arr) return;
+        if (start >= indices.size()) return;
+
+        size_t idx = indices[start];
+        if (idx >= arr->size()) return;
+
+        if (start == indices.size() - 1) {
+            (*arr)[idx] = std::forward<T>(value);
+        }
+        else {
+            (*arr)[idx].set_value_at_indices(indices, std::forward<T>(value), start + 1);
+        }
+    }
 };
 
 //Type information
 
 
-struct Type {
-    enum class Kind { Void, Int, Float, Bool, Pointer, Array, Function };
+struct Type;
 
-    Kind kind = Kind::Void;
-
-    std::shared_ptr<Type> element = nullptr;
-
-    size_t array_size = 0;
-
-    bool is_signed = true;
-
-    std::vector<std::shared_ptr<Type>> param_types;
-    
-    std::string ToString()
-    {
-        switch (kind)
-        {
-        case Type::Kind::Int:
-            return "int";
-            break;
-        case Type::Kind::Bool:
-            return "bool";
-            break;
-        case Type::Kind::Float:
-            return "float";
-            break;
-        case Type::Kind::Void:
-            return "void";
-            break;
-        case Type::Kind::Pointer:
-            if (element)
-                return element->ToString() + "*";
-
-        case Type::Kind::Array:
-            if (element)
-                return element->ToString() +
-                "[" + std::to_string(array_size) + "]";
-        }
-
-        return "unknown";
-    }
-
-    size_t Size()
-    {
-        switch (kind)
-        {
-        case Type::Kind::Int:
-            return 4;
-        case Type::Kind::Bool:
-            return 1;
-        case Type::Kind::Float:
-            return 4;
-        case Type::Kind::Pointer:
-            return 8;
-        case Type::Kind::Array:
-            return array_size * element->Size();
-        case Type::Kind::Void:
-            return 0;
-        default:
-            std::cerr << "Unknown type encountered in size calculation." << std::endl;
-            exit(EXIT_FAILURE);
-        }
-    }
-    static std::shared_ptr<Type> MakeInt() {
-        auto t = std::make_shared<Type>();
-        t->kind = Kind::Int;
-        return t;
-    }
-    static std::shared_ptr<Type> MakeVoid() {
-        auto t = std::make_shared<Type>();
-        t->kind = Kind::Void;
-        return t;
-    }
-    static std::shared_ptr<Type> MakePointer(std::shared_ptr<Type> target) {
-        auto t = std::make_shared<Type>();
-        t->kind = Kind::Pointer;
-        t->element = std::move(target);
-        return t;
-    }
-
-    static std::shared_ptr<Type> MakeArray(std::shared_ptr<Type> elem, size_t size) {
-        auto t = std::make_shared<Type>();
-        t->kind = Kind::Array;
-        t->element = std::move(elem);
-        t->array_size = size;
-        return t;
-    }
-
-    static std::shared_ptr<Type> MakeFloat() {
-        auto t = std::make_shared<Type>();
-        t->kind = Kind::Float;
-        return t;
-    }
-
-    static std::shared_ptr<Type> MakeBool() {
-        auto t = std::make_shared<Type>();
-        t->kind = Kind::Bool;
-        return t;
-    }
-    static std::shared_ptr<Type> GetCommonType(const std::shared_ptr<Type>& lhs,
-        const std::shared_ptr<Type>& rhs)
-    {
-        if (!lhs || !rhs) return nullptr;
-
-
-        // Floating-point promotion (Float always win)
-        if (lhs->kind == Kind::Float || rhs->kind == Kind::Float) {
-            if ((lhs->kind == Kind::Int || lhs->kind == Kind::Float) &&
-                (rhs->kind == Kind::Int || rhs->kind == Kind::Float)) {
-                return MakeFloat();
-            }
-        }
-
-        // Pointer Arithmetic Rules
-        // Pointer + Int -> Pointer
-        if (lhs->kind == Kind::Pointer && rhs->kind == Kind::Int) return lhs;
-        if (lhs->kind == Kind::Int && rhs->kind == Kind::Pointer) return rhs;
-
-        // Pointer - Pointer -> Int 
-        if (lhs->kind == Kind::Pointer && rhs->kind == Kind::Pointer) {
-            return MakeInt(); // Or MakePtrDiff()
-        }
-        //  Array Decay to Pointer Arithmetic
-        if (lhs->kind == Kind::Array && rhs->kind == Kind::Int) {
-            return MakePointer(lhs->element);
-        }
-        if (lhs->kind == Kind::Int && rhs->kind == Kind::Array) {
-            return MakePointer(rhs->element);
-        }
-        if (*lhs == *rhs) return lhs;
-
-        // Invalid binary type combination
-        return nullptr;
-    }
-
-    
-    bool operator==(const Type& other) const {
-        if (kind != other.kind) return false;
-        if (kind == Kind::Array && array_size != other.array_size) return false;
-
-        if (element && other.element) {
-            if (!(*element == *other.element)) return false;
-        }
-        else if (element != other.element) {
-            return false;
-        }
-
-        if (kind == Kind::Function) {
-            if (param_types.size() != other.param_types.size()) return false;
-            for (size_t i = 0; i < param_types.size(); ++i) {
-                if (!(*param_types[i] == *other.param_types[i])) return false;
-            }
-        }
-        return true;
-    }
-
-    bool operator!=(const Type& other) const {
-        return !this->operator==(other);
-    }
+struct Modifier
+{
+	bool is_const = false;
+	bool is_volatile = false;
 };
+struct QualifiedType {
+	std::shared_ptr<Type> base_type;
+	Modifier mod;
+
+	std::string ToString() const;
+	size_t Size() const;
+
+	bool operator==(const QualifiedType& other) const;
+
+	bool operator!=(const QualifiedType& other) const {
+		return !(*this == other);
+	}
+	operator bool() const {
+		return base_type != nullptr;
+	}
+
+	static QualifiedType MakeInt();
+	static QualifiedType MakeVoid();
+	static QualifiedType MakePointer(const QualifiedType& target, const Modifier& mod);
+	static QualifiedType MakeArray(const QualifiedType& elem, size_t size);
+	static QualifiedType MakeFloat();
+	static QualifiedType MakeBool();
+	static QualifiedType GetCommonType(const QualifiedType& lhs, const QualifiedType& rhs);
+};
+
+struct Type {
+	enum class Kind { Void, Int, Float, Bool, Pointer, Array, Function };
+
+	Kind kind = Kind::Void;
+
+	QualifiedType element; 
+
+	size_t array_size = 0;
+
+	bool is_signed = true;
+
+	std::vector<QualifiedType> param_types;
+
+	std::string ToString() const;
+
+	size_t Size() const
+	{
+		switch (kind)
+		{
+		case Type::Kind::Int:
+			return 4;
+		case Type::Kind::Bool:
+			return 1;
+		case Type::Kind::Float:
+			return 4;
+		case Type::Kind::Pointer:
+			return 8;
+		case Type::Kind::Array:
+			return array_size * element.Size();
+		case Type::Kind::Void:
+			return 0;
+		default:
+			std::cerr << "Unknown base_type encountered in size calculation." << std::endl;
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	bool operator==(const Type& other) const {
+		if (kind != other.kind) return false;
+		if (kind == Kind::Array && array_size != other.array_size) return false;
+
+		if (element != other.element) {
+			return false;
+		}
+
+		if (kind == Kind::Function) {
+			if (param_types.size() != other.param_types.size()) return false;
+			for (size_t i = 0; i < param_types.size(); ++i) {
+				if (param_types[i] != other.param_types[i]) return false;
+			}
+		}
+		return true;
+	}
+
+	bool operator!=(const Type& other) const {
+		return !(*this == other);
+	}
+};
+
+// --- Out-of-line method implementations  ---
+inline bool QualifiedType::operator==(const QualifiedType& other) const {
+	//if (is_const != other.is_const || is_volatile != other.is_volatile) return false;
+	if (base_type == other.base_type) return true;
+	if (!base_type || !other.base_type) return false;
+	return *base_type == *other.base_type; 
+}
+inline std::string QualifiedType::ToString() const {
+	if (!base_type) return "invalid";
+	std::string prefix;
+	if (mod.is_const) prefix += "const ";
+	if (mod.is_volatile) prefix += "volatile ";
+	return prefix + base_type->ToString();
+}
+
+inline size_t QualifiedType::Size() const {
+	if (!base_type) return 0;
+	return base_type->Size();
+}
+
+inline std::string Type::ToString() const {
+	switch (kind)
+	{
+	case Type::Kind::Int:
+		return "int";
+	case Type::Kind::Bool:
+		return "bool";
+	case Type::Kind::Float:
+		return "float";
+	case Type::Kind::Void:
+		return "void";
+	case Type::Kind::Pointer:
+		if (element.base_type)
+			return element.ToString() + "*";
+		return "void*";
+	case Type::Kind::Array:
+		if (element.base_type)
+			return element.ToString() + "[" + std::to_string(array_size) + "]";
+	}
+	return "unknown";
+}
+
+inline QualifiedType QualifiedType::MakeInt() {
+	auto t = std::make_shared<Type>();
+	t->kind = Type::Kind::Int;
+	return QualifiedType{ t, false, false };
+}
+
+inline QualifiedType QualifiedType::MakeVoid() {
+	auto t = std::make_shared<Type>();
+	t->kind = Type::Kind::Void;
+	return QualifiedType{ t, false, false };
+}
+
+inline QualifiedType QualifiedType::MakePointer(const QualifiedType& target, const Modifier& mod = {}) {
+	auto t = std::make_shared<Type>();
+	t->kind = Type::Kind::Pointer;
+	t->element = target;
+	return QualifiedType{ t, mod.is_const, mod.is_volatile };
+}
+
+inline QualifiedType QualifiedType::MakeArray(const QualifiedType& elem, size_t size) {
+	auto t = std::make_shared<Type>();
+	t->kind = Type::Kind::Array;
+	t->element = elem;
+	t->array_size = size;
+	return QualifiedType{ t, false, false };
+}
+
+inline QualifiedType QualifiedType::MakeFloat() {
+	auto t = std::make_shared<Type>();
+	t->kind = Type::Kind::Float;
+	return QualifiedType{ t, false, false };
+}
+
+inline QualifiedType QualifiedType::MakeBool() {
+	auto t = std::make_shared<Type>();
+	t->kind = Type::Kind::Bool;
+	return QualifiedType{ t, false, false };
+}
+
+inline QualifiedType QualifiedType::GetCommonType(const QualifiedType& lhs, const QualifiedType& rhs) {
+	if (!lhs.base_type || !rhs.base_type) return QualifiedType{};
+
+	// Floating-point promotion (Float always wins)
+	if (lhs.base_type->kind == Type::Kind::Float || rhs.base_type->kind == Type::Kind::Float) {
+		if ((lhs.base_type->kind == Type::Kind::Int || lhs.base_type->kind == Type::Kind::Float) &&
+			(rhs.base_type->kind == Type::Kind::Int || rhs.base_type->kind == Type::Kind::Float)) {
+			return MakeFloat();
+		}
+	}
+
+	// Pointer Arithmetic Rules
+	// Pointer + Int -> Pointer
+	if (lhs.base_type->kind == Type::Kind::Pointer && rhs.base_type->kind == Type::Kind::Int) return lhs;
+	if (lhs.base_type->kind == Type::Kind::Int && rhs.base_type->kind == Type::Kind::Pointer) return rhs;
+
+	// Pointer - Pointer -> Int 
+	if (lhs.base_type->kind == Type::Kind::Pointer && rhs.base_type->kind == Type::Kind::Pointer) {
+		return MakeInt();
+	}
+	// Array Decay to Pointer Arithmetic
+	if (lhs.base_type->kind == Type::Kind::Array && rhs.base_type->kind == Type::Kind::Int) {
+		return MakePointer(lhs.base_type->element, lhs.mod);
+	}
+	if (lhs.base_type->kind == Type::Kind::Int && rhs.base_type->kind == Type::Kind::Array) {
+		return MakePointer(rhs.base_type->element, rhs.mod);
+	}
+	if (*lhs.base_type == *rhs.base_type) {
+		QualifiedType result = lhs;
+		result.mod.is_const = false;
+		result.mod.is_volatile = false;
+		return result;
+	}
+
+	// Invalid binary base_type combination
+	return QualifiedType{};
+}
 
 struct DeclaratorModifier
 {
-    enum class Kind
-    {
-        Pointer,
-        Array,
-        Function 
-    };
+	enum class Kind
+	{
+		Pointer,
+		Array,
+		Function
+	};
 
-    Kind kind;
+	Kind kind;
 
-    // Data payload depending on kind
-    size_t array_size = 0;
+	size_t array_size = 0;
 
-    // Every modifier wraps an inner modifier
-    std::unique_ptr<DeclaratorModifier> child = nullptr;
+	// Qualifiers specifically for this modifier level (e.g., pointer constness)
+	bool is_const = false;
+	bool is_volatile = false;
+
+	std::unique_ptr<DeclaratorModifier> child = nullptr;
 };
 
     //--------------------------------------------------------------------------------------------------------------//
@@ -283,7 +393,7 @@ struct Declarator
 
 struct ParsedType
 {
-    std::shared_ptr<Type> type;
+	QualifiedType type;
     Declarator declarator;
 };
 
@@ -324,11 +434,11 @@ struct NodeExprCompare
 };
 struct NodeExprIntLit
 {
-    int value;
+    int value = 0;
 };
 struct NodeExprBoolLit
 {
-    bool value;
+    bool value = false;
 
 };
 
@@ -336,7 +446,7 @@ struct NodeExprIdent
 {
     std::string name;
     size_t id = 0;
-    std::shared_ptr<Type> type = nullptr;
+    QualifiedType type;
     std::shared_ptr<Symbol> symbol;
 
 };
@@ -393,7 +503,7 @@ struct NodeExpr
 {
 
     NodeExpression var;
-    std::shared_ptr<Type> type = std::make_shared<Type>(Type::Kind::Void);
+    QualifiedType type;
 };
 
 
@@ -407,10 +517,12 @@ struct NodeStatementExit
 struct NodeStatementVar
 {
     size_t id = 0;
-    std::shared_ptr<Type> element_type = nullptr;
+    QualifiedType type;
     std::string name;
     std::shared_ptr<Symbol> symbol = nullptr;
     NodeExpr* initializer = nullptr;
+
+    std::optional<ConstValue> compiled_constant = std::nullopt;
 };
 
 
@@ -462,13 +574,6 @@ struct NodeStatementAssignment
     NodeExpr* expr = nullptr;
 
 };
-struct NodeStatementArray {
-    size_t id;
-    std::shared_ptr<Type> element_type;
-    std::string name;
-    NodeExpr* initializer; 
-    std::shared_ptr<Symbol> symbol = nullptr;
-};
 
 struct NodeStatement
 {
@@ -482,8 +587,7 @@ struct NodeStatement
         NodeStatementContinue, // 6
         NodeStatementExpr, // 7
         NodeStatementReturn, // 8
-        NodeStatementAssignment, // 9
-        NodeStatementArray // 10
+        NodeStatementAssignment // 9
     > stat;
 };
 
@@ -491,286 +595,308 @@ struct NodeStatement
 struct Parameter
 {
     std::string name;                   
-    std::shared_ptr<Type> type;         
+    QualifiedType type;
     size_t id = 0;                      
 };
 struct NodeFunction
 {
     std::string name;
     std::vector<Parameter> parameters;
-    std::shared_ptr<Type> retType;
     std::optional<NodeBlock> body;
+    QualifiedType retType;
     size_t stack_size = 0;
 };
 
-struct NodeProg
-{
-    std::vector<NodeFunction> functions;
-    NodeBlock global_space;
+struct NodeTopLevel {
+	std::variant<NodeFunction*, NodeStatementVar*> decl;
+};
+
+struct NodeProg {
+	std::vector<NodeTopLevel> items;
 };
 
 
 namespace TypeInfo {
 
 
-    bool SameType(const std::shared_ptr<Type>& a, const std::shared_ptr<Type>& b)
-    {
-        if (a == b) return true; // Handles both being nullptr or pointing to same address
-        if (!a || !b) return false;
-        return *a == *b;
-    }
-    constexpr bool IsArray(const std::shared_ptr<Type>& type) {
-        return type->kind == Type::Kind::Array;
-    }
-    constexpr bool IsArithmetic(const std::shared_ptr<Type>& type) {
-        if (!type) return false;
-        return type->kind == Type::Kind::Int ||
-            type->kind == Type::Kind::Float ||
-            type->kind == Type::Kind::Bool;
-    }
-    constexpr bool IsPointer(const std::shared_ptr<Type>& type) {
-        return type->kind == Type::Kind::Pointer; 
-    }
-    constexpr bool IsVoidPointer(const std::shared_ptr<Type>& type) {
-        return (type->kind == Type::Kind::Void) && (type->element) && IsPointer(type->element); 
-    }
+    // strictQualifiers = true: requires exact match on const/volatile flags.
+    // strictQualifiers = false: checks if underlying base_types match .
+	inline bool SameType(const QualifiedType& a, const QualifiedType& b, bool strictQualifiers = true) {
+		if (!a.base_type || !b.base_type) return false;
 
-    bool IsVoid(const std::shared_ptr<Type>& type) {
-        auto current = type;
+		if (a.base_type == b.base_type) {
+			if (strictQualifiers) {
+				return a.mod.is_const == b.mod.is_const && a.mod.is_volatile == b.mod.is_volatile;
+			}
+			return true;
+		}
 
-        while (current) {
-            if (current->kind == Type::Kind::Void) {
-                return true;
-            }
+		// Compare base base_type contents and qualifiers
+		bool baseSame = (*a.base_type == *b.base_type);
+		if (!baseSame) return false;
 
-            if (current->kind != Type::Kind::Pointer) {
-                return false;
-            }
+		if (strictQualifiers) {
+			return a.mod.is_const == b.mod.is_const && a.mod.is_volatile == b.mod.is_volatile;
+		}
+		return true;
+	}
 
-            current = current->element;
-        }
+	inline bool IsArray(const QualifiedType& qt) {
+		return qt.base_type && qt.base_type->kind == Type::Kind::Array;
+	}
 
-        return false;
-    }
+	inline bool IsArithmetic(const QualifiedType& qt) {
+		if (!qt.base_type) return false;
+		return qt.base_type->kind == Type::Kind::Int ||
+			qt.base_type->kind == Type::Kind::Float ||
+			qt.base_type->kind == Type::Kind::Bool;
+	}
 
-    constexpr bool IsInteger(const std::shared_ptr<Type>& type) {
-        return type->kind == Type::Kind::Int; 
-    }
-    constexpr bool IsScalar(const std::shared_ptr<Type>& type) {
-        return (type->kind == Type::Kind::Int) || (type->kind == Type::Kind::Bool) || (type->kind == Type::Kind::Pointer);
-    }
+	inline bool IsPointer(const QualifiedType& qt) {
+		return qt.base_type && qt.base_type->kind == Type::Kind::Pointer;
+	}
 
-    bool CanCompare(const std::shared_ptr<Type>& lhs, const std::shared_ptr<Type>& rhs)
-    {
-        if (!lhs || !rhs) return false;
+	inline bool IsVoidPointer(const QualifiedType& qt) {
+		// Assuming a void pointer has kind Pointer whose element base_type is Void
+		return qt.base_type && (qt.base_type->kind == Type::Kind::Pointer) &&
+			(qt.base_type->element.base_type) && (qt.base_type->element.base_type->kind == Type::Kind::Void);
+	}
 
-        // 1. Identical / structurally equal types (e.g., int vs int, float vs float)
-        if (*lhs == *rhs) return true;
+	inline bool IsVoid(const QualifiedType& qt) {
+		if (!qt.base_type) return false;
 
-        // 2. Both are numeric arithmetic types (e.g., int vs float, char vs int)
-        if (IsArithmetic(lhs) && IsArithmetic(rhs)) return true;
+		std::shared_ptr<Type> current = qt.base_type;
 
-        // 3. Pointer comparisons
-        if (IsPointer(lhs) && IsPointer(rhs))
-        {
-            // Any pointer can be compared with void* in C
-            if (IsVoidPointer(lhs) || IsVoidPointer(rhs)) return true;
+		while (current) {
+			if (current->kind == Type::Kind::Void) {
+				return true;
+			}
 
-            // Pointers to compatible types (or exact element type match)
-            if (lhs->element && rhs->element) {
-                return *lhs->element == *rhs->element;
-            }
-        }
+			if (current->kind != Type::Kind::Pointer) {
+				return false;
+			}
 
-        // 4. Pointer compared against null / integer literal 0
-        if ((IsPointer(lhs) && IsInteger(rhs)) || (IsInteger(lhs) && IsPointer(rhs))) {
-            return true;
-        }
+			current = current->element.base_type;
+		}
 
-        return false;
-    }
-    constexpr size_t CalculateSizeInBytes(const Type& type)
-    {
-        switch (type.kind)
-        {
-        case Type::Kind::Int:
-            return 4;
-        case Type::Kind::Bool:
-            return 1;
-        case Type::Kind::Float:
-            return 4;
-        case Type::Kind::Pointer:
-            return 8; 
-        case Type::Kind::Array:
-            return type.array_size * CalculateSizeInBytes(*type.element);
-        case Type::Kind::Void:
-            return 0;
-        default:
-            std::cerr << "Unknown type encountered in size calculation." << std::endl;
-            exit(EXIT_FAILURE);
-        }
-    }
+		return false;
+	}
 
-    std::string TypeToString(const std::shared_ptr<Type>& type)
-    {
-        if (!type) { return "Invalid type"; }
-        switch (type->kind)
-        {
-        case Type::Kind::Int:
-            return "int";
-            break;
-        case Type::Kind::Bool:
-            return "bool";
-            break;
-        case Type::Kind::Float:
-            return "float";
-            break;
-        case Type::Kind::Void:
-            return "void";
-            break;
-        case Type::Kind::Pointer:
-            if(type->element)
-                return TypeToString(type->element) + "*";
+	inline bool IsInteger(const QualifiedType& qt) {
+		return qt.base_type && qt.base_type->kind == Type::Kind::Int;
+	}
 
-        case Type::Kind::Array:
-            if (type->element)
-                return TypeToString(type->element) +
-                    "[" + std::to_string(type->array_size) + "]";
-        }
+	inline bool IsScalar(const QualifiedType& qt) {
+		return qt.base_type && (qt.base_type->kind == Type::Kind::Int ||
+			qt.base_type->kind == Type::Kind::Bool ||
+			qt.base_type->kind == Type::Kind::Pointer);
+	}
+	inline bool CanCompare(const QualifiedType& lhs, const QualifiedType& rhs)
+	{
+		if (!lhs.base_type || !rhs.base_type) return false;
 
-        return "unknown";
-    }
+		if (*lhs.base_type == *rhs.base_type && lhs.mod.is_const == rhs.mod.is_const && lhs.mod.is_volatile == rhs.mod.is_volatile) return true;
 
-    std::vector<size_t> GetArrayDimensions(const std::shared_ptr<Type>& type)
-    {
-        std::vector<size_t> dimensions;
+		if (IsArithmetic(lhs) && IsArithmetic(rhs)) return true;
 
-        auto current = type;
+		if (IsPointer(lhs) && IsPointer(rhs))
+		{
+			// Any pointer can be compared with void* in C
+			if (IsVoidPointer(lhs) || IsVoidPointer(rhs)) return true;
 
-        while (current )
-        {
-            if (current->kind == Type::Kind::Array) {
-                dimensions.push_back(current->array_size);
-            }
-            current = current->element;
-        }
+			// Pointers to compatible element base_types
+			if (lhs.base_type->element.base_type && rhs.base_type->element.base_type) {
+				return *lhs.base_type->element.base_type == *rhs.base_type->element.base_type;
+			}
+		}
 
-        return dimensions;
-    }
+		if ((IsPointer(lhs) && IsInteger(rhs)) || (IsInteger(lhs) && IsPointer(rhs))) {
+			return true;
+		}
 
-    std::shared_ptr<Type> SetArrayDimensionSize(const std::shared_ptr<Type>& type, size_t dimTarget, size_t newDim)
-    {
-        if (!type) return nullptr;
+		return false;
+	}
+	inline size_t CalculateSizeInBytes(const QualifiedType& qt)
+	{
+		if (!qt.base_type) return 0;
+		switch (qt.base_type->kind)
+		{
+		case Type::Kind::Int:
+			return 4;
+		case Type::Kind::Bool:
+			return 1;
+		case Type::Kind::Float:
+			return 4;
+		case Type::Kind::Pointer:
+			return 8;
+		case Type::Kind::Array:
+			return qt.base_type->array_size * CalculateSizeInBytes(qt.base_type->element);
+		case Type::Kind::Void:
+			return 0;
+		default:
+			std::cerr << "Unknown base_type encountered in size calculation." << std::endl;
+			exit(EXIT_FAILURE);
+		}
+	}
 
-        auto root = std::make_shared<Type>(*type);
-        auto current = root;
+	inline std::string TypeToString(const QualifiedType& qt)
+	{
+		if (!qt.base_type) { return "Invalid base_type"; }
 
-        size_t pos = 0;
-        while (pos < dimTarget && current && current->element)
-        {
-            current->element = std::make_shared<Type>(*current->element);
-            current = current->element;
-            pos++;
-        }
+		std::string prefix = "";
+		if (qt.mod.is_const) prefix += "const ";
+		if (qt.mod.is_volatile) prefix += "volatile ";
 
-        if (current && pos == dimTarget)
-        {
-            current->array_size = newDim;
-        }
+		switch (qt.base_type->kind)
+		{
+		case Type::Kind::Int:
+			return prefix + "int";
+		case Type::Kind::Bool:
+			return prefix + "bool";
+		case Type::Kind::Float:
+			return prefix + "float";
+		case Type::Kind::Void:
+			return prefix + "void";
+		case Type::Kind::Pointer:
+			if (qt.base_type->element.base_type)
+				return prefix + TypeToString(qt.base_type->element) + "*";
+			return prefix + "void*";
+		case Type::Kind::Array:
+			if (qt.base_type->element.base_type)
+				return prefix + TypeToString(qt.base_type->element) +
+				"[" + std::to_string(qt.base_type->array_size) + "]";
+		}
 
-        return root;
-    }
-    constexpr size_t GetTypeSize(const Type& type) { // TODO: add array
-        if (type.kind == Type::Kind::Pointer) {
-            return 8; // 64-bit architecture pointer size
-        }
-        return CalculateSizeInBytes(type);
-    }
-    std::shared_ptr<Type> GetBaseType(const std::shared_ptr<Type>& type)
-    {
-        auto current = type;
+		return prefix + "unknown";
+	}
 
-        auto t = type;
-        while (current && (current->kind == Type::Kind::Array))
-        {
-            current = current->element;
-            t = current;
-        }
-        return t;
-    }
-    size_t GetTotalArraySize(const std::shared_ptr<Type>& type)
-    {
-        size_t size = 1;
+	inline size_t GetTypeSize(const QualifiedType& qt) {
+		if (!qt.base_type) return 0;
+		if (qt.base_type->kind == Type::Kind::Pointer) {
+			return 8; // 64-bit architecture pointer size
+		}
+		return CalculateSizeInBytes(qt);
+	}
 
-        auto dimensions = GetArrayDimensions(type);
-        for (auto dim : dimensions)
-        {
-            size *= dim;
-        }
-        return size * GetTypeSize(*type->element);
-    }
-  
-    const Type& GetPointeeType(const Type& type)
-    {
-        assert(type.kind == Type::Kind::Pointer);
-        return *type.element;
-    }
-    size_t GetPointerDepth(const std::shared_ptr<Type>& type)
-    {
-        size_t depth = 0;
-        auto current = type;
+	inline size_t GetTypeAlignment(const QualifiedType& qt)
+	{
+		if (!qt.base_type) return 0;
+		switch (qt.base_type->kind)
+		{
+		case Type::Kind::Int:
+			return alignof(int);
+		case Type::Kind::Bool:
+			return 1;
+		case Type::Kind::Float:
+			return 4;
+		case Type::Kind::Array:
+			return 8;
+		case Type::Kind::Pointer:
+			return 8;
+		case Type::Kind::Void:
+			return 0;
+		default:
+			std::cerr << "Unknown base_type encountered in alignment calculation." << std::endl;
+			exit(EXIT_FAILURE);
+		}
+	}
+	inline std::vector<size_t> GetArrayDimensions(const QualifiedType& qt)
+	{
+		std::vector<size_t> dimensions;
+		QualifiedType current = qt;
 
-        while (current && current->kind == Type::Kind::Pointer)
-        {
-            ++depth;
-            current = current->element;
-        }
+		while (current.base_type)
+		{
+			if (current.base_type->kind == Type::Kind::Array) {
+				dimensions.push_back(current.base_type->array_size);
+			}
+			current = current.base_type->element;
+		}
 
-        return depth;
-    }
-   
-    constexpr size_t GetPointeeSize(const Type& type)
-    {
-        // type must be a pointer
-        return GetTypeSize(type);
-    }
-    std::shared_ptr<Type> MakePointerType(std::shared_ptr<Type>& type)
-    {
-        Type result;
-        result.kind = Type::Kind::Pointer;
-        result.element = type;
-        return std::make_shared<Type>(result);
-    }
+		return dimensions;
+	}
 
-    constexpr size_t GetTypeAlignment(const Type& type)
-    {
-        switch (type.kind)
-        {
-        case Type::Kind::Int:
-            return alignof(int);
-        case Type::Kind::Bool:
-            return 1;
-        case Type::Kind::Float:
-            return 4;
-        case Type::Kind::Array:
-            return 8;
-        case Type::Kind::Pointer:
-            return 8;
-        case Type::Kind::Void:
-            return 0;
-        default:
-            std::cerr << "Unknown type encountered in size calculation." << std::endl;
-            exit(EXIT_FAILURE);
-        }
-    }
+	inline QualifiedType SetArrayDimensionSize(const QualifiedType& qt, size_t dimTarget, size_t newDim)
+	{
+		if (!qt.base_type) return QualifiedType{};
 
-    
+		QualifiedType root = qt;
+		root.base_type = std::make_shared<Type>(*qt.base_type);
+		auto currentType = root.base_type;
 
-    const std::string& GetDeclaratorName(const Declarator& decl)
-    {
-        return "";
-    }
+		size_t pos = 0;
+		while (pos < dimTarget && currentType && currentType->element.base_type)
+		{
+			currentType->element.base_type = std::make_shared<Type>(*currentType->element.base_type);
+			currentType = currentType->element.base_type;
+			pos++;
+		}
 
+		if (currentType && pos == dimTarget)
+		{
+			currentType->array_size = newDim;
+		}
+
+		return root;
+	}
+
+	inline QualifiedType GetBaseType(const QualifiedType& qt)
+	{
+		QualifiedType current = qt;
+		QualifiedType t = qt;
+		while (current.base_type && (current.base_type->kind == Type::Kind::Array))
+		{
+			current = current.base_type->element;
+			t = current;
+		}
+		return t;
+	}
+
+	inline size_t GetTotalArraySize(const QualifiedType& qt)
+	{
+		if (!qt.base_type || !qt.base_type->element.base_type) return 0;
+		size_t size = 1;
+
+		auto dimensions = GetArrayDimensions(qt);
+		for (auto dim : dimensions)
+		{
+			size *= dim;
+		}
+		return size * GetTypeSize(qt.base_type->element);
+	}
+
+	inline QualifiedType GetPointeeType(const QualifiedType& qt)
+	{
+		assert(qt.base_type && qt.base_type->kind == Type::Kind::Pointer);
+		return qt.base_type->element;
+	}
+
+	inline size_t GetPointerDepth(const QualifiedType& qt)
+	{
+		size_t depth = 0;
+		QualifiedType current = qt;
+
+		while (current.base_type && current.base_type->kind == Type::Kind::Pointer)
+		{
+			++depth;
+			current = current.base_type->element;
+		}
+
+		return depth;
+	}
+
+	inline size_t GetPointeeSize(const QualifiedType& qt)
+	{
+		return GetTypeSize(qt);
+	}
+
+	inline QualifiedType MakePointerType(const QualifiedType& qt)
+	{
+		Type result;
+		result.kind = Type::Kind::Pointer;
+		result.element = qt;
+		return QualifiedType{ std::make_shared<Type>(result), false, false };
+	}
 }
 
 

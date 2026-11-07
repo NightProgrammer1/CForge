@@ -42,8 +42,8 @@ void PrintIndent(int indent) {
 // --- ANSI Color Constants ---
 constexpr const char* COL_RESET = "\033[0m";
 constexpr const char* COL_TREE = "\033[90m"; 
-constexpr const char* COL_EXPR = "\x1b[38;5;153m"; 
-constexpr const char* COL_STMT = "\x1b[38;5;223m"; 
+constexpr const char* COL_EXPR = "\x1b[38;5;14m"; 
+constexpr const char* COL_STMT = "\x1b[38;5;9m"; 
 constexpr const char* COL_LIT = "\033[32m"; 
 constexpr const char* COL_OP = "\033[33m"; 
 constexpr const char* COL_TYPE = "\033[35m"; 
@@ -54,13 +54,12 @@ void PrintBranch(const std::string& prefix, bool is_last, const std::string& tex
 }
 
 void PrintNode(const NodeExpr* expr, const std::string& prefix, bool is_last);
-
 void PrintNode(const NodeExpr* expr, const std::string& prefix, bool is_last) {
     if (!expr) return;
 
     std::string type_suffix = "";
     if (expr->type) {
-        type_suffix = fmt::format(" {}[{}{}{}]", COL_TYPE, COL_LIT, expr->type->ToString(), COL_RESET);
+        type_suffix = fmt::format(" {}[{}{}{}]", COL_TYPE, COL_LIT, expr->type.ToString(), COL_RESET);
     }
 
     struct Visitor {
@@ -148,123 +147,195 @@ void PrintNode(const NodeExpr* expr, const std::string& prefix, bool is_last) {
 
     std::visit(visitor, expr->var);
 }
+void PrintFunction(const NodeFunction& func, bool is_last_func)
+{
+	std::string func_text = fmt::format("{}FunctionDecl{}: {}{} (returns: {}{}{})",
+		COL_RESET, COL_RESET, COL_LIT, func.name, COL_TYPE, TypeInfo::TypeToString(func.retType), COL_RESET);
+
+	PrintBranch("", is_last_func, func_text);
+
+	std::string func_prefix = is_last_func ? "     " : "│    ";
+	const auto& statements = func.body->statements;
+
+	for (size_t j = 0; j < statements.size(); ++j) {
+		bool is_last_stmt = (j == statements.size() - 1);
+
+		struct StmtVisitor {
+			std::string prefix;
+			bool is_last;
+
+			void operator()(const NodeStatementExit&) const {
+				PrintBranch(prefix, is_last, fmt::format("{}StatementExit{}", COL_STMT, COL_RESET));
+			}
+			void operator()(const NodeStatementVar& var) const {
+				std::string type_str = "";
+				std::string size_str = "";
+
+				if (var.type) {
+					type_str = fmt::format(" elem: {}{}{}", COL_TYPE, var.type.ToString(), COL_RESET);
+
+					auto baseType = TypeInfo::GetBaseType(var.type);
+					if (baseType && baseType.Size() > 0) {
+						size_str = fmt::format(" size: {}{}{}", COL_LIT, var.type.Size(), COL_RESET);
+					}
+				}
+
+				// Dynamically label as array or scalar variable
+				std::string label = TypeInfo::IsArray(var.type) ? "StatementArray" : "StatementVar";
+
+				std::string text = fmt::format("{}{}{}: {}{}{}{}{}",
+					COL_STMT, label, COL_RESET,
+					COL_LIT, var.name, COL_RESET,
+					type_str, size_str);
+
+				PrintBranch(prefix, is_last, text);
+
+				if (var.initializer) {
+					std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+					PrintNode(var.initializer, next_prefix, true);
+				}
+			}
+			void operator()(const NodeBlock& block) const {
+				PrintBranch(prefix, is_last, fmt::format("{}CompoundStmt{}", COL_STMT, COL_RESET));
+				for (size_t k = 0; k < block.statements.size(); ++k) {
+					std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+					std::visit(StmtVisitor{ next_prefix, k == block.statements.size() - 1 }, block.statements[k]->stat);
+				}
+			}
+			void operator()(const NodeStatementIf& _if) const {
+				PrintBranch(prefix, is_last, fmt::format("{}IfStmt{}", COL_STMT, COL_RESET));
+				std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+
+				// Print condition first
+				PrintNode(_if.condition, next_prefix, _if.thenBody == nullptr && _if.elseBody == nullptr);
+
+				if (_if.thenBody) {
+					std::visit(StmtVisitor{ next_prefix, _if.elseBody == nullptr }, _if.thenBody->stat);
+				}
+				if (_if.elseBody) {
+					std::visit(StmtVisitor{ next_prefix, true }, _if.elseBody->stat);
+				}
+			}
+			void operator()(const NodeStatementWhile& _while) const {
+				PrintBranch(prefix, is_last, fmt::format("{}WhileStmt{}", COL_STMT, COL_RESET));
+				std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+
+				PrintNode(_while.condition, next_prefix, false);
+
+				if (_while.body) {
+					std::visit(StmtVisitor{ next_prefix, _while.update == nullptr }, _while.body->stat);
+				}
+				if (_while.update) {
+					PrintNode(_while.update, next_prefix, true);
+				}
+			}
+			void operator()(const NodeStatementBreak&) const {
+				PrintBranch(prefix, is_last, fmt::format("{}StatementBreak{}", COL_STMT, COL_RESET));
+			}
+			void operator()(const NodeStatementContinue&) const {
+				PrintBranch(prefix, is_last, fmt::format("{}StatementContinue{}", COL_STMT, COL_RESET));
+			}
+			void operator()(const NodeStatementExpr& expr) const {
+				PrintBranch(prefix, is_last, fmt::format("{}StatementExpr{}", COL_STMT, COL_RESET));
+				std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+				PrintNode(expr.expr, next_prefix, true);
+			}
+			void operator()(const NodeStatementReturn& ret) const {
+				PrintBranch(prefix, is_last, fmt::format("{}ReturnStmt{}", COL_STMT, COL_RESET));
+				if (ret.expr) {
+					std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+					PrintNode(ret.expr, next_prefix, true);
+				}
+			}
+			void operator()(const NodeStatementAssignment& assign) const {
+				PrintBranch(prefix, is_last, fmt::format("{}StatementAssignment{}", COL_STMT, COL_RESET));
+				std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+
+				PrintNode(assign.target, next_prefix, false);
+				PrintNode(assign.expr, next_prefix, true);
+			}
+		} stmt_visitor{ func_prefix, is_last_stmt };
+
+		std::visit(stmt_visitor, statements[j]->stat);
+	}
+}
+
+
 void PrintAST(const NodeProg& prog) {
-    fmt::print("{}[TranslationUnit]{}\n", COL_EXPR, COL_RESET);
+	fmt::print("{}[TranslationUnit]{}\n", COL_EXPR, COL_RESET);
 
-    const auto& functions = prog.functions;
-    for (size_t i = 0; i < functions.size(); ++i) {
-        bool is_last_func = (i == functions.size() - 1);
-        const auto& func = functions[i];
+	std::string base_prefix = "";
+	std::string child_prefix = base_prefix + "    ";
 
-        std::string func_text = fmt::format("{}FunctionDecl{}: {}{} (returns: {}{}{})",
-            COL_EXPR, COL_RESET, COL_LIT, func.name, COL_TYPE, TypeInfo::TypeToString(func.retType), COL_RESET);
+	for (size_t i = 0; i < prog.items.size(); ++i) {
+		bool last_item = (i == prog.items.size() - 1);
+		const auto& item = prog.items[i];
 
-        PrintBranch("", is_last_func, func_text);
+		bool print_global_space = false;
+		if (std::holds_alternative<NodeStatementVar*>(item.decl)) {
+			if (i == 0 || std::holds_alternative<NodeFunction*>(prog.items[i - 1].decl)) {
+				print_global_space = true;
+			}
+		}
 
-        std::string func_prefix = is_last_func ? "     " : "│    ";
-        const auto& statements = func.body->statements;
+		if (print_global_space) {
+			bool global_space_is_last = true;
+			for (size_t j = i + 1; j < prog.items.size(); ++j) {
+				if (std::holds_alternative<NodeFunction*>(prog.items[j].decl)) {
+					global_space_is_last = false;
+					break;
+				}
+			}
+			PrintBranch(base_prefix, global_space_is_last, fmt::format("{0}GlobalSpace{0}", COL_RESET));
+		}
 
-        for (size_t j = 0; j < statements.size(); ++j) {
-            bool is_last_stmt = (j == statements.size() - 1);
+		std::visit([&](auto* node) {
+			using T = std::decay_t<decltype(*node)>;
 
-            struct StmtVisitor {
-                std::string prefix;
-                bool is_last;
+			if constexpr (std::is_same_v<T, NodeFunction>) {
+				bool is_last_func = true;
+				for (size_t j = i + 1; j < prog.items.size(); ++j) {
+					if (std::holds_alternative<NodeFunction*>(prog.items[j].decl)) {
+						is_last_func = false;
+						break;
+					}
+				}
+				PrintFunction(*node, is_last_func);
+			}
+			else if constexpr (std::is_same_v<T, NodeStatementVar>) {
+				bool is_last_var = last_item;
+				if (!last_item && std::holds_alternative<NodeFunction*>(prog.items[i + 1].decl)) {
+					is_last_var = true;
+				}
 
-                void operator()(const NodeStatementExit&) const {
-                    PrintBranch(prefix, is_last, fmt::format("{}StatementExit{}", COL_STMT, COL_RESET));
-                }
-                void operator()(const NodeStatementVar& var) const {
-                    std::string text = fmt::format("{}VarDecl{}: {}{}{}", COL_STMT, COL_RESET, COL_LIT, var.name, COL_RESET);
-                    PrintBranch(prefix, is_last, text);
-                    if (var.initializer) {
-                        std::string next_prefix = prefix + (is_last ? "     " : "│    ");
-                        PrintNode(var.initializer, next_prefix, true);
-                    }
-                }
-                void operator()(const NodeBlock& block) const {
-                    PrintBranch(prefix, is_last, fmt::format("{}CompoundStmt{}", COL_STMT, COL_RESET));
-                    for (size_t k = 0; k < block.statements.size(); ++k) {
-                        std::string next_prefix = prefix + (is_last ? "     " : "│    ");
-                        std::visit(StmtVisitor{ next_prefix, k == block.statements.size() - 1 }, block.statements[k]->stat);
-                    }
-                }
-                void operator()(const NodeStatementIf& _if) const {
-                    PrintBranch(prefix, is_last, fmt::format("{}IfStmt{}", COL_STMT, COL_RESET));
-                    std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+				std::string type_str = "";
+				std::string size_str = "";
 
-                    // Print condition first
-                    PrintNode(_if.condition, next_prefix, _if.thenBody == nullptr && _if.elseBody == nullptr);
+				if (node->type) {
+					type_str = fmt::format(" elem: {}{}{}", COL_TYPE, node->type.ToString(), COL_RESET);
 
-                    if (_if.thenBody) {
-                        std::visit(StmtVisitor{ next_prefix, _if.elseBody == nullptr }, _if.thenBody->stat);
-                    }
-                    if (_if.elseBody) {
-                        std::visit(StmtVisitor{ next_prefix, true }, _if.elseBody->stat);
-                    }
-                }
-                void operator()(const NodeStatementWhile& _while) const {
-                    PrintBranch(prefix, is_last, fmt::format("{}WhileStmt{}", COL_STMT, COL_RESET));
-                    std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+					auto baseType = TypeInfo::GetBaseType(node->type);
+					if (baseType && baseType.Size() > 0) {
+						size_str = fmt::format(" size: {}{}{}", COL_LIT, baseType.Size(), COL_RESET);
+					}
+				}
 
-                    PrintNode(_while.condition, next_prefix, false);
+				std::string label = TypeInfo::IsArray(node->type) ? "StatementArray" : "StatementVar";
 
-                    if (_while.body) {
-                        std::visit(StmtVisitor{ next_prefix, _while.update == nullptr }, _while.body->stat);
-                    }
-                    if (_while.update) {
-                        PrintNode(_while.update, next_prefix, true);
-                    }
-                }
-                void operator()(const NodeStatementBreak&) const {
-                    PrintBranch(prefix, is_last, fmt::format("{}StatementBreak{}", COL_STMT, COL_RESET));
-                }
-                void operator()(const NodeStatementContinue&) const {
-                    PrintBranch(prefix, is_last, fmt::format("{}StatementContinue{}", COL_STMT, COL_RESET));
-                }
-                void operator()(const NodeStatementExpr& expr) const {
-                    PrintBranch(prefix, is_last, fmt::format("{}StatementExpr{}", COL_STMT, COL_RESET));
-                    std::string next_prefix = prefix + (is_last ? "     " : "│    ");
-                    PrintNode(expr.expr, next_prefix, true);
-                }
-                void operator()(const NodeStatementReturn& ret) const {
-                    PrintBranch(prefix, is_last, fmt::format("{}ReturnStmt{}", COL_STMT, COL_RESET));
-                    if (ret.expr) {
-                        std::string next_prefix = prefix + (is_last ? "     " : "│    ");
-                        PrintNode(ret.expr, next_prefix, true);
-                    }
-                }
-                void operator()(const NodeStatementAssignment& assign) const {
-                    PrintBranch(prefix, is_last, fmt::format("{}StatementAssignment{}", COL_STMT, COL_RESET));
-                    std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+				std::string text = fmt::format("{}{}{}: {}{}{}{}{}",
+					COL_STMT, label, COL_RESET,
+					COL_LIT, node->name, COL_RESET,
+					type_str, size_str);
 
-                    PrintNode(assign.target, next_prefix, false);
-                    PrintNode(assign.expr, next_prefix, true);
-                }
-                void operator()(const NodeStatementArray& array) const {
-                    std::string type_str = "";
-                    std::string size_str = "";
+				PrintBranch(child_prefix, is_last_var, text);
 
-                    if (array.element_type) {
-                        type_str = fmt::format(" elem: {}{}{}", COL_TYPE, array.element_type->ToString(), COL_RESET);
-                        size_str = fmt::format(" size: {}{}{}", COL_LIT, array.element_type->Size() / TypeInfo::GetBaseType(array.element_type)->Size(), COL_RESET);
+				if (node->initializer) {
+					std::string next_prefix = child_prefix + (is_last_var ? "     " : "│    ");
+					PrintNode(node->initializer, next_prefix, true);
+				}
+			}
+			}, item.decl);
+	}
 
-                    }
-                    std::string text = fmt::format("{}StatementArray{}: {}{}{}{}{}",
-                        COL_STMT, COL_RESET,
-                        COL_LIT, array.name, COL_RESET,
-                        type_str, size_str);
-
-                    PrintBranch(prefix, is_last, text);
-
-                    if (array.initializer) {
-                        std::string next_prefix = prefix + (is_last ? "     " : "│    ");
-                        PrintNode(array.initializer, next_prefix, true);
-                    }
-                }
-            } stmt_visitor{ func_prefix, is_last_stmt };
-
-            std::visit(stmt_visitor, statements[j]->stat);
-        }
-    }
+	
 }

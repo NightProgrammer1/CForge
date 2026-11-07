@@ -14,20 +14,20 @@ public:
 	}
 private:
 
-	std::shared_ptr<Type> AnalyzeExpression(NodeExpr& expr)
+	QualifiedType AnalyzeExpression(NodeExpr& expr)
 	{
 		struct Visitor
 		{
 			SemanticAnalyzer* analyzer;
 			NodeExpr& expr;
-			std::shared_ptr<Type> operator()(const NodeExprIntLit& ) const {
+			QualifiedType operator()(const NodeExprIntLit& ) const {
 				return expr.type;
 			}
 
-			std::shared_ptr<Type> operator()(const NodeExprBoolLit&) const {
+			QualifiedType operator()(const NodeExprBoolLit&) const {
 				return expr.type;
 			}
-			std::shared_ptr<Type> operator()(NodeExprCall& call) const {
+			QualifiedType operator()(NodeExprCall& call) const {
 				auto funcSymbol = analyzer->symbols.LookupFunction(call.name);
 
 				if (!funcSymbol->hasBody) {
@@ -47,7 +47,7 @@ private:
 					//Decay array to pointer if the parameter is a pointer
 					if (TypeInfo::IsArray(argType) && TypeInfo::IsPointer(expectedType))
 					{
-						argType = Type::MakePointer(argType->element);
+						argType = QualifiedType::MakePointer(argType.base_type->element);
 					}
 					if (!TypeInfo::SameType(argType, expectedType)) {
 						std::cerr << "Type Error: Argument " << i + 1 << ": " << TypeInfo::TypeToString(argType) << " in call to '"
@@ -56,16 +56,23 @@ private:
 					}
 				}
 
-				auto function = std::find_if(analyzer->ast.functions.begin(), analyzer->ast.functions.end(), [&](NodeFunction& func) { if (!func.body.has_value()) { return false; } return (func.name == call.name) ? true : false; });
-				if (function == analyzer->ast.functions.end() || !function->body.has_value()) { exit(EXIT_FAILURE); };
+				auto function = std::find_if(analyzer->ast.items.begin(), analyzer->ast.items.end(), [&](NodeTopLevel& top)
+					{
+						if (auto func =  std::get_if<NodeFunction*>(&top.decl)) {
+							if (!(*func)->body.has_value()) { return false; } return ((*func)->name == call.name) ? true : false;
+						}
+						return false;
+					}
+				);
+				if (function == analyzer->ast.items.end()) { exit(EXIT_FAILURE); };
 
 
-				call.func = &(*function);
+				call.func = (std::get<NodeFunction*>(function->decl));
 
 				return funcSymbol->returnType;
 			
 			}
-			std::shared_ptr<Type> operator()(NodeExprAssignment& assign) const
+			QualifiedType operator()(NodeExprAssignment& assign) const
 			{
 				auto exprType = analyzer->AnalyzeExpression(*assign.expr);
 				auto targetType = analyzer->AnalyzeExpression(*assign.target);
@@ -79,7 +86,7 @@ private:
 				return assign.target->type;
 				
 			}
-			std::shared_ptr<Type> operator()(NodeExprIdent& expr) const  {
+			QualifiedType operator()(NodeExprIdent& expr) const  {
 				auto symbol = analyzer->symbols.LookupVariable(expr.name);
 
 				if (!symbol)
@@ -93,12 +100,12 @@ private:
 				expr.name = symbol->name;
 				return symbol->type;
 			}
-			std::shared_ptr<Type> operator()(const NodeExprVoid&) const
+			QualifiedType operator()(const NodeExprVoid&) const
 			{
-				return std::make_shared<Type>( Type::Kind::Void );
+				return QualifiedType{};
 			}
 
-			std::shared_ptr<Type> operator()(const NodeExprCompare& expr) const
+			QualifiedType operator()(const NodeExprCompare& expr) const
 			{
 				auto leftType = analyzer->AnalyzeExpression(*expr.left);
 				auto rightType = analyzer->AnalyzeExpression(*expr.right);
@@ -116,7 +123,7 @@ private:
 				}
 				else {
 					// Relational / Equality comparison (<, <=, >, >=, ==, !=)
-					if (*leftType != *rightType) {
+					if (leftType != rightType) {
 						if (!TypeInfo::CanCompare(leftType, rightType)) {
 							std::cerr << "Type Error: Comparison operands must have matching types.\n";
 							exit(EXIT_FAILURE);
@@ -125,9 +132,9 @@ private:
 				}
 
 				// Comparisons and logical operations ALWAYS evaluate to Bool 
-				return Type::MakeBool();
+				return QualifiedType::MakeBool();
 			}
-			std::shared_ptr<Type> operator()(NodeExprBinary& expr) const
+			QualifiedType operator()(NodeExprBinary& expr) const
 			{
 				auto leftType = analyzer->AnalyzeExpression(*expr.left);
 				auto rightType = analyzer->AnalyzeExpression(*expr.right);
@@ -135,13 +142,13 @@ private:
 				//Handles array decay
 				if (TypeInfo::IsArray(leftType))
 				{
-					expr.left->type = Type::MakePointer(leftType->element);
+					expr.left->type = QualifiedType::MakePointer(leftType.base_type->element);
 				}
 				if (TypeInfo::IsArray(rightType))
 				{
-					expr.right->type = Type::MakePointer(rightType->element);
+					expr.right->type = QualifiedType::MakePointer(rightType.base_type->element);
 				}
-				if (auto commonType = Type::GetCommonType(leftType, rightType))
+				if (auto commonType = QualifiedType::GetCommonType(leftType, rightType))
 				{
 					return commonType;
 				}
@@ -150,11 +157,16 @@ private:
 				exit(EXIT_FAILURE);
 				
 			}
-			std::shared_ptr<Type> operator()(NodeExprUnary& unary) const
+			QualifiedType operator()(NodeExprUnary& unary) const
 			{
 				auto child_type = analyzer->AnalyzeExpression(*unary.expr);
 
 				if (unary.op == TokenType::ampersand) {
+					if (auto ident = std::get_if<NodeExprIdent>(&unary.expr->var)) {
+						if (auto symbol = analyzer->symbols.LookupVariable(ident->name)) {
+							symbol->isAddressTaken = true;
+						}
+					}
 					auto result = TypeInfo::MakePointerType(child_type);
 					return result;
 				}
@@ -165,17 +177,17 @@ private:
 						exit(EXIT_FAILURE);
 					}
 
-					if (!child_type->element) {
+					if (!child_type.base_type->element) {
 						std::cerr << "Internal Error: Pointer or Array missing element type!\n";
 						exit(EXIT_FAILURE);
 					}
 
 					// Dereferencing yields the pointed-to/element type
-					auto result_type = child_type->element;
+					auto result_type = child_type.base_type->element;
 					
 					// it automatically decays to a pointer to its first element (int*)
 					if (TypeInfo::IsArray(result_type)) {
-						result_type = TypeInfo::MakePointerType(result_type->element);
+						result_type = TypeInfo::MakePointerType(result_type.base_type->element);
 					}
 					//unary.expr->type = result_type;
 					return result_type;
@@ -195,11 +207,35 @@ private:
 				}
 				return child_type;
 			}
-			std::shared_ptr<Type> operator()(const NodeExprInitList& list) const
+			QualifiedType operator()(const NodeExprInitList& list) const
 			{
-				return std::make_shared<Type>();
+				if (list.values.empty()) {
+					return QualifiedType{};
+				}
+
+				// baseline element type
+				QualifiedType elementType = analyzer->AnalyzeExpression(*list.values[0]);
+
+				for (size_t i = 1; i < list.values.size(); i++) {
+					QualifiedType nextType = analyzer->AnalyzeExpression(*list.values[i]);
+
+					// handle mixed types (e.g., int + float -> float)
+					elementType = QualifiedType::GetCommonType(elementType, nextType);
+
+					if (!elementType.base_type) {
+						std::cerr << "Semantic Error: Incompatible types in initializer list." << std::endl;
+						return QualifiedType{};
+					}
+				}
+
+
+				auto arr = std::make_shared<Type>(Type::Kind::Array);
+				arr->element = elementType;
+				arr->array_size = list.values.size();
+
+				return QualifiedType{ arr };
 			}
-			std::shared_ptr<Type> operator()(NodeExprArrayAccess& access) const
+			QualifiedType operator()(NodeExprArrayAccess& access) const
 			{
 				//  Resolve base variable type
 				auto currentType = analyzer->AnalyzeExpression(*access.array);
@@ -208,18 +244,18 @@ private:
 				for (const auto& indexExpr : access.indices) {
 					// Validate index expression
 					auto indexType = analyzer->AnalyzeExpression(*indexExpr);
-					if (indexType->kind != Type::Kind::Int) {
+					if (indexType.base_type->kind != Type::Kind::Int) {
 						std::cerr << "Type Error: Array indices must evaluate to integer type.\n";
 						exit(EXIT_FAILURE);
 					}
 
 					// Handle Array Decay if currentType is an array lvalue
 					if (TypeInfo::IsArray(currentType)) {
-						currentType = currentType->element;
+						currentType = currentType.base_type->element;
 					}
 					// Handle Pointer Subscripting (e.g., ptr[i])
 					else if (TypeInfo::IsPointer(currentType)) {
-						currentType = currentType->element;
+						currentType = currentType.base_type->element;
 					}
 					else {
 						std::cerr << "Type Error: Subscripted object is not an array or pointer.\n";
@@ -233,11 +269,14 @@ private:
 		};
 
 		Visitor visitor{ this, expr };
-		std::shared_ptr<Type> calculated_type = std::visit(visitor, expr.var);
+		QualifiedType calculated_type = std::visit(visitor, expr.var);
 		expr.type = calculated_type;
 
 		return calculated_type;
 	}
+
+
+	
 	void AnalyzeStatement( NodeStatement& statement)
 	{
 		struct Visitor
@@ -246,28 +285,35 @@ private:
 			void operator()(const NodeStatementExit& stat)
 			{
 				auto exitType = analyzer->AnalyzeExpression(*stat.expr);
-				if (*exitType != Type{ Type::Kind::Int }) {
+				if (*exitType.base_type != Type{ Type::Kind::Int }) {
 					std::cerr << "Type Error: Exit code must be an integer.\n";
 					exit(EXIT_FAILURE);
 				}
 			}
 			void operator()(NodeStatementVar& stat)
 			{
-				auto exprType = analyzer->AnalyzeExpression(*stat.initializer);
-				auto& declaredType = stat.element_type;
-				if (TypeInfo::IsArray(exprType)) {
-					exprType = TypeInfo::MakePointerType(exprType->element);
-				}
-				if (!TypeInfo::SameType(exprType, declaredType)) {
 
-					std::cerr << "Type Error: Cannot assign expression of type "
-						<< TypeInfo::TypeToString(exprType)
-						<< " to variable '" << stat.name << "'\n";
-					exit(EXIT_FAILURE);
+				if (stat.initializer) {
+					auto exprType = analyzer->AnalyzeExpression(*stat.initializer);
+					auto& declaredType = stat.type;
+
+
+					if (TypeInfo::IsArray(declaredType)) {
+						//exprType = TypeInfo::MakePointerType(exprType.base_type->element);
+						stat.initializer->type = analyzer->EvaluateArrayVariable(stat);
+						return;
+					}
+
+					if (!analyzer->IsAssignable(exprType, *stat.initializer)) {
+
+						std::cerr << "Type Error: Cannot assign expression of type "
+							<< TypeInfo::TypeToString(exprType)
+							<< " to variable '" << stat.name << "'\n";
+						exit(EXIT_FAILURE);
+					}
 				}
 				stat.id = ValueID::Create();
-
-				auto symbol = std::make_shared<Symbol>( stat.name, stat.element_type, stat.id, 0, false );
+				auto symbol = std::make_shared<Symbol>( stat.name, stat.type, stat.id, 0, false );
 				stat.symbol = symbol;
 				if (!analyzer->symbols.DeclareVariable(symbol)) {
 					std::cerr << "Semantic Error: Variable '" << stat.name
@@ -284,7 +330,7 @@ private:
 			void operator()(const NodeStatementIf& _if)
 			{
 				auto condType = analyzer->AnalyzeExpression(*_if.condition);
-				if (!analyzer->EvaluatesToBool(*condType)) {
+				if (!analyzer->EvaluatesToBool(condType)) {
 					std::cerr << "Type Error: IF condition must be boolean.\n";
 					exit(EXIT_FAILURE);
 				}
@@ -298,7 +344,7 @@ private:
 			void operator()(const NodeStatementWhile& _while)
 			{
 				auto exprType = analyzer->AnalyzeExpression(*_while.condition);
-				if (!analyzer->EvaluatesToBool(*exprType)) {
+				if (!analyzer->EvaluatesToBool(exprType)) {
 					std::cerr << "Type Error: IF condition must be boolean.\n";
 					exit(EXIT_FAILURE);
 				}
@@ -331,12 +377,12 @@ private:
 				auto expectedType = analyzer->currentFunctionReturnType;
 				auto actualType = analyzer->AnalyzeExpression(*_ret.expr);
 				if (_ret.expr) {
-					if (*expectedType == Type{} && *actualType != Type{}) {
+					if (*expectedType.base_type == Type{} && *actualType.base_type != Type{}) {
 						std::cerr << "Type Error: Cannot return a value from a void function.\n";
 						exit(EXIT_FAILURE);
 					}
 
-					if (!TypeInfo::SameType(actualType, expectedType)) {
+					if (!TypeInfo::SameType(actualType, expectedType, false)) {
 						std::cerr << "Type Error: Function return type mismatch in '"
 							<< analyzer->currentFunctionName.value_or("function") << "' : \n"
 							<< "Expected: " << TypeInfo::TypeToString(expectedType) << " "
@@ -345,7 +391,7 @@ private:
 					}
 				}
 				else {
-					if (*expectedType != Type{}) {
+					if (*expectedType.base_type != Type{}) {
 						std::cerr << "Type Error: Non-void function must return a value.\n";
 						exit(EXIT_FAILURE);
 					}
@@ -356,9 +402,14 @@ private:
 			{
 				
 				auto varType = analyzer->AnalyzeExpression(*assign.target);
-				
+				if (varType.mod.is_const)
+				{
+					std::cerr << "Type Error: Cannot assign"
+						<< " to " << TypeInfo::TypeToString(varType) << "\n";
+					exit(EXIT_FAILURE);
+				}
 				auto exprType = analyzer->AnalyzeExpression(*assign.expr);
-				if (!TypeInfo::SameType(exprType, varType) || (TypeInfo::GetPointerDepth(varType) != (TypeInfo::GetPointerDepth(exprType)))) {
+				if (!TypeInfo::SameType(exprType, varType, false) || (TypeInfo::GetPointerDepth(varType) != (TypeInfo::GetPointerDepth(exprType)))) {
 					std::cerr << "Type Error: Cannot convert expression of type "
 						<< TypeInfo::TypeToString(exprType)
 						<< " to " << TypeInfo::TypeToString(varType) << "\n";
@@ -370,81 +421,51 @@ private:
 
 
 			}
-			void operator()(NodeStatementArray& arr)
-			{
-				std::vector<size_t> dimSizes = TypeInfo::GetArrayDimensions(arr.element_type);
-
-				for (size_t i = 1; i < dimSizes.size(); ++i)
-				{
-					if (dimSizes[i] == 0)
-					{
-						std::cerr << "Error: Declaration of array '" << arr.name
-							<< "' must have bounds for all dimensions except the first\n";
-						exit(EXIT_FAILURE);
-					}
-				}
-
-				if (arr.initializer)
-				{
-
-					// Deduce dimension[0] if omitted 
-					if (!dimSizes.empty() && dimSizes[0] == 0)
-					{
-						size_t inferredFirstDim = 0;
-
-						if (auto* initList = std::get_if<NodeExprInitList>(&arr.initializer->var))
-						{
-							inferredFirstDim = initList->values.size();
-						}
-
-						if (inferredFirstDim == 0)
-						{
-							std::cerr << "Error: Array initializer for '" << arr.name << "' cannot be empty\n";
-							exit(EXIT_FAILURE);
-						}
-
-						dimSizes[0] = inferredFirstDim;
-						arr.element_type = TypeInfo::SetArrayDimensionSize(arr.element_type, 0, inferredFirstDim);
-					}
-				}
-				else if (!dimSizes.empty() && dimSizes[0] == 0)
-				{
-					std::cerr << "Error: Definition of array '" << arr.name << "' with missing explicit bound requires an initializer\n";
-					exit(EXIT_FAILURE);
-				}
-
-
-				arr.id = ValueID::Create();
-
-				auto symbol = std::make_shared<Symbol>(arr.name, arr.element_type, arr.id);
-
-				arr.symbol = symbol;
-				analyzer->ValidateArrayInitializer(arr);
-				analyzer->symbols.DeclareVariable(symbol);
-
-			}
 		};
 		Visitor visitor{ this };
 		std::visit(visitor, statement.stat);
 	}
 
 
-	bool EvaluatesToBool(const Type& type)
+	bool EvaluatesToBool(const QualifiedType& type)
 	{
-		switch (type.kind)
-		{
-		case Type::Kind::Pointer:
-			return true;
-		case Type::Kind::Int:
-			return true;
-		case Type::Kind::Bool:
-			return true;
-		default:
-			return false;
+		if (type.base_type) {
+			switch (type.base_type->kind)
+			{
+			case Type::Kind::Pointer:
+				return true;
+			case Type::Kind::Int:
+				return true;
+			case Type::Kind::Bool:
+				return true;
+			default:
+				return false;
+			}
 		}
 	}
 
-	void FlattenInitList(NodeExpr& expr, std::vector<const NodeExpr*>& out_scalars, std::shared_ptr<Type> arrType) {
+
+	bool IsAssignable(const QualifiedType& dest, const NodeExpr& src) {
+
+		if (!dest.base_type) return false;
+		if (TypeInfo::SameType(dest, src.type, false)) {
+			return true;
+		}
+
+	
+		// Allow any integer literal with a value of 0 (like NULL) to be assigned to ANY pointer type
+		if (dest.base_type->kind == Type::Kind::Pointer) {
+			if (auto intLit = std::get_if<NodeExprIntLit>(&src.var)) {
+				if (intLit->value == 0) {
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+	QualifiedType FlattenInitList(NodeExpr& expr, std::vector<const NodeExpr*>& out_scalars, QualifiedType arrType) {
+		auto exprType = AnalyzeExpression(expr);
 		if (auto* initList = std::get_if<NodeExprInitList>(&expr.var)) {
 
 			for (auto* child : initList->values) {
@@ -455,8 +476,7 @@ private:
 		}
 		else {
 			// It's a scalar leaf expression (NodeExprIntLit, NodeExprIdent)
-			auto exprType = AnalyzeExpression(expr);
-			if (!TypeInfo::SameType(exprType, TypeInfo::GetBaseType(arrType))) {
+			if (!TypeInfo::SameType(exprType, TypeInfo::GetBaseType(arrType), false)) {
 				std::cerr << "Type Error: Cannot assign expression of type "
 					<< TypeInfo::TypeToString(exprType)
 					<< " to: " << TypeInfo::TypeToString(arrType)<< "\n";
@@ -464,14 +484,72 @@ private:
 			}
 			out_scalars.push_back(&expr);
 		}
+
+		return exprType;
 	}
-	void ValidateArrayInitializer( const NodeStatementArray& arr ) {
-		if (!arr.initializer) return;
+
+	QualifiedType EvaluateArrayVariable(NodeStatementVar& arr)
+	{
+		std::vector<size_t> dimSizes = TypeInfo::GetArrayDimensions(arr.type);
+
+		for (size_t i = 1; i < dimSizes.size(); ++i)
+		{
+			if (dimSizes[i] == 0)
+			{
+				std::cerr << "Error: Declaration of array '" << arr.name
+					<< "' must have bounds for all dimensions except the first\n";
+				exit(EXIT_FAILURE);
+			}
+		}
+
+		if (arr.initializer)
+		{
+
+			// Deduce dimension[0] if omitted 
+			if (!dimSizes.empty() && dimSizes[0] == 0)
+			{
+				size_t inferredFirstDim = 0;
+
+				if (auto* initList = std::get_if<NodeExprInitList>(&arr.initializer->var))
+				{
+					inferredFirstDim = initList->values.size();
+				}
+
+				if (inferredFirstDim == 0)
+				{
+					std::cerr << "Error: Array initializer for '" << arr.name << "' cannot be empty\n";
+					exit(EXIT_FAILURE);
+				}
+
+				dimSizes[0] = inferredFirstDim;
+				arr.type = TypeInfo::SetArrayDimensionSize(arr.type, 0, inferredFirstDim);
+			}
+		}
+		else if (!dimSizes.empty() && dimSizes[0] == 0)
+		{
+			std::cerr << "Error: Definition of array '" << arr.name << "' with missing explicit bound requires an initializer\n";
+			exit(EXIT_FAILURE);
+		}
+
+
+		arr.id = ValueID::Create();
+
+		auto symbol = std::make_shared<Symbol>(arr.name, arr.type, arr.id);
+
+		arr.symbol = symbol;
+		ValidateArrayInitializer(arr);
+		symbols.DeclareVariable(symbol);
+
+
+		return arr.type.base_type->element;
+	}
+	void ValidateArrayInitializer( const NodeStatementVar& arr ) {
+		if (!arr.initializer) return ;
 
 		// Calculate overall array capacity
 		std::vector<int> resolved_dims;
 		size_t total_capacity = 1;
-		auto dimensions = TypeInfo::GetArrayDimensions(arr.element_type);
+		auto dimensions = TypeInfo::GetArrayDimensions(arr.type);
 		for (auto dim : dimensions) {
 			resolved_dims.push_back(dim);
 			total_capacity *= dim;
@@ -479,7 +557,7 @@ private:
 
 		std::vector<const NodeExpr*> flat_scalars;
 		auto list = arr.initializer;
-		FlattenInitList(*list, flat_scalars, arr.element_type);
+		auto type = FlattenInitList(*list, flat_scalars, arr.type);
 
 
 		
@@ -487,12 +565,12 @@ private:
 			std::cerr << "Excess elements in array initializer: capacity is "  << total_capacity << ", but got " << flat_scalars.size() << "\n";
 
 			exit(EXIT_FAILURE);
-			return;
 		}
 
 		ValidateInitList(*list, resolved_dims, 0);
-	}
 
+
+	}
 	void ValidateInitList(
 		NodeExpr& expr,
 		const std::vector<int>& resolved_dims,
@@ -549,7 +627,7 @@ private:
 			var.id = ValueID::Create();
 			if (TypeInfo::IsArray(var.type))
 			{
-				var.type = Type::MakePointer(var.type->element);
+				var.type = QualifiedType::MakePointer(var.type.base_type->element);
 			}
 			symbols.DeclareParameter(var.name, var.type, var.id);
 			
@@ -558,7 +636,7 @@ private:
 		AnalyzeBlock(func.body.value(), false);
 
 
-		if (func.retType->kind != Type::Kind::Void && !currentFunctionHasReturn) {
+		if (func.retType.base_type->kind != Type::Kind::Void && !currentFunctionHasReturn) {
 			std::cerr << "Semantic Error: Function '" << func.name
 				<< "' has non-void return type but is missing a return statement.\n";
 			exit(EXIT_FAILURE);
@@ -573,7 +651,6 @@ private:
 		symbols.ExitScope();
 
 		currentFunctionName.reset();
-		currentFunctionReturnType = nullptr;
 
 	}
 	void AnalyzeBlock(const NodeBlock& block, bool createScope = true) {
@@ -588,55 +665,27 @@ private:
 
 	void AnalyzeProg(NodeProg& prog)
 	{
-		AnalyzeBlock(prog.global_space, false);
-		for (const auto& func : prog.functions)
+
+
+		for (const auto& item : ast.items)
 		{
-			std::vector<std::shared_ptr<Type>> paramTypes;
-			for (const auto& param : func.parameters) {
-				paramTypes.push_back(param.type);
+			if (auto func = std::get_if<NodeFunction*>(&item.decl))
+			{
+				ParseFunction(*func);
 			}
-
-			auto existing = symbols.LookupFunction(func.name);
-
-
-			if (existing.has_value()) {
-				// Check for prototype mismatch
-				if(!TypeInfo::SameType(existing->returnType,func.retType) || existing->paramTypes.size() != paramTypes.size())
-				{
-					std::cerr << "Error: Redeclaration of " << func.name << " with different signature!\n";
-					exit(EXIT_FAILURE);
-				}
-				for (size_t i = 0; i < paramTypes.size(); i++)
-				{
-					auto funcParamType = paramTypes[i];
-					auto existingFuncParamType = existing->paramTypes[i];
-					if (!TypeInfo::SameType(existingFuncParamType, funcParamType)) {
-						std::cerr << "Error: Redeclaration of " << func.name << " with different signature!\n";
-						exit(EXIT_FAILURE);
-					}
-				}
-				
-				if (func.body.has_value() && existing->hasBody) {
-					std::cerr << "Error: Redefinition of function " << func.name << "\n";
-					exit(EXIT_FAILURE);
-				}
-			}
-
-			bool hasBody = func.body.has_value();
-			symbols.DeclareFunction(func.name, func.retType, paramTypes, hasBody);
-		}
-
-		for (auto& func : prog.functions)
-		{
-			if (func.body.has_value()) {
-				AnalyzeFunction(func);
+			else if (auto var = std::get_if<NodeStatementVar*>(&item.decl))
+			{
+				ParseGlobalVar(*var);
 			}
 		}
 
 
+
+		
 
 	}
 
+	
 	bool IsLValue(const NodeExpr& expr)
 	{
 		return std::visit(
@@ -663,9 +712,72 @@ private:
 				}
 			}, expr.var);
 	}
+	void ParseGlobalVar(NodeStatementVar* varDecl)
+	{
+		auto exprType = AnalyzeExpression(*varDecl->initializer);
+		auto& declaredType = varDecl->type;
+		
+		if (!IsAssignable(declaredType, *varDecl->initializer)) {
+
+			std::cerr << "Type Error: Cannot assign expression of type "
+				<< TypeInfo::TypeToString(exprType)
+				<< " to variable '" << varDecl->name << "' of type " << TypeInfo::TypeToString(declaredType) << "\n";
+			exit(EXIT_FAILURE);
+		}
+		varDecl->id = ValueID::Create();
+
+		auto symbol = std::make_shared<Symbol>(varDecl->name, varDecl->type, varDecl->id, 0, false, true);
+		varDecl->symbol = symbol;
+		if (!symbols.DeclareVariable(symbol)) {
+			std::cerr << "Semantic Error: Variable '" << varDecl->name
+				<< "' already declared in this scope.\n";
+			exit(EXIT_FAILURE);
+		}
+	}
+	void ParseFunction(NodeFunction* func)
+	{
+		std::vector<QualifiedType> paramTypes;
+		for (const auto& param : func->parameters) {
+			paramTypes.push_back(param.type);
+		}
+
+		auto existing = symbols.LookupFunction(func->name);
+
+
+		if (existing.has_value()) {
+			// Check for prototype mismatch
+			if (!TypeInfo::SameType(existing->returnType, func->retType) || existing->paramTypes.size() != paramTypes.size())
+			{
+				std::cerr << "Error: Redeclaration of " << func->name << " with different signature!\n";
+				exit(EXIT_FAILURE);
+			}
+			for (size_t i = 0; i < paramTypes.size(); i++)
+			{
+				auto funcParamType = paramTypes[i];
+				auto existingFuncParamType = existing->paramTypes[i];
+				if (!TypeInfo::SameType(existingFuncParamType, funcParamType)) {
+					std::cerr << "Error: Redeclaration of " << func->name << " with different signature!\n";
+					exit(EXIT_FAILURE);
+				}
+			}
+
+			if (func->body.has_value() && existing->hasBody) {
+				std::cerr << "Error: Redefinition of function " << func->name << "\n";
+				exit(EXIT_FAILURE);
+			}
+		}
+
+		bool hasBody = func->body.has_value();
+		symbols.DeclareFunction(func->name, func->retType, paramTypes, hasBody);
+
+		if (hasBody) {
+			AnalyzeFunction(*func);
+		}
+
+	}
 	SymbolTable symbols;
 	std::optional<std::string> currentFunctionName;
-	std::shared_ptr<Type> currentFunctionReturnType;
+	QualifiedType currentFunctionReturnType;
 	NodeProg& ast;
 	std::pmr::polymorphic_allocator<char>& _allocator;
 	bool currentFunctionHasReturn = false;

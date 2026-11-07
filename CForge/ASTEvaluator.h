@@ -2,9 +2,6 @@
 #include "types.h"
 #include "tokenization.h"
 #include <unordered_map>
-#include <optional>
-#include <string>
-#include <variant>
 #include <cassert>
 
 
@@ -39,10 +36,14 @@ public:
             std::optional<ConstValue> operator()(const NodeExprBoolLit& lit) {
                 return ConstValue{ lit.value };
             }
-            std::optional<ConstValue> operator()(const NodeExprVoid& lit) {
+            std::optional<ConstValue> operator()(const NodeExprVoid&) {
                 return {};
             }
             std::optional<ConstValue> operator()(const NodeExprIdent& var) {
+
+				if (!var.type.mod.is_const || TypeInfo::IsPointer(var.type)) {
+					return std::nullopt;
+				}
                 if (auto value  = GetVariable(var.id, env))
                 {
                     return *value;
@@ -91,7 +92,8 @@ public:
 							else {
 								finalIndices.back() += ptr->element_offset;
 							}
-							return *ConstValue::get_value_from_array(&*arrayVal, finalIndices);
+                            auto value = *ConstValue::get_value_from_array(&*arrayVal, finalIndices);
+							return value;
 						}
 					}
                     return std::nullopt;
@@ -153,6 +155,7 @@ public:
                                     return std::nullopt;
                                 }
                             }
+                            return std::nullopt;
                         },
 
                         originalVal.get_scalar()
@@ -183,15 +186,12 @@ public:
                     },
                     val->get_scalar()
                 );
+
+                return std::nullopt;
             }
             
             std::optional<ConstValue> operator()(const NodeExprCall& call) {
 
-				std::vector<ConstValue> argValues;
-				for (NodeExpr* arg : call.args) {
-					auto foldedArg = EvaluateExpr(arg, env);
-						argValues.push_back(*foldedArg);
-				}
                 assert(call.func->body && "Function has no body");
 
 
@@ -199,12 +199,20 @@ public:
 				EnterScope(env);
 
 				for (size_t i = 0; i < call.func->parameters.size(); ++i) {
-
-                    if (!GenerateVariable(call.func->parameters[i].id, argValues[i], env)) { 
-                        std::cerr << "ConstFolder: Failed to generate const value for parameter: " << call.func->parameters[i].name << std::endl;
-                        return std::nullopt; 
+                    if (i < call.args.size()) {
+                        if (auto foldedArg = EvaluateExpr(call.args[i], env)) {
+                            if (!GenerateVariable(call.func->parameters[i].id, std::move(*foldedArg), env)) {
+                                std::cerr << "ConstFolder: Failed to generate const value for parameter: " << call.func->parameters[i].name << std::endl;
+                                return std::nullopt;
+                            }
+                        }
+                        else
+                            return std::nullopt;
                     }
-
+                    else
+                    {
+                        return std::nullopt;
+                    }
 				}
                 auto result = EvaluateBlock(call.func->body.value(), env);
 
@@ -228,7 +236,7 @@ public:
                     return std::nullopt;
                 }
 
-                SetVariableValue(id, *val, env);
+                SetVariableValue(id, std::move(*val), env);
                 return val;
             }
             std::optional<ConstValue> operator()(const NodeExprInitList& assign)
@@ -237,7 +245,7 @@ public:
                 for (auto value : assign.values)
                 {
                     if (auto val = EvaluateExpr(value, env)) {
-                        arrayVal.push_back(*val);
+                        arrayVal.push_back(std::move(*val));
                     }
                     else
                     {
@@ -263,7 +271,7 @@ public:
 
 
                 if (ctx == ExprContext::LValue) {
-                    return ConstValue{ ConstValue::Pointer{ arrayId, indices } };
+                    return ConstValue{ ConstValue::Pointer{ arrayId, std::move(indices) } };
                 }
 
                 if (auto val = GetVariable(arrayId, env)) { //RValue context
@@ -304,7 +312,7 @@ private:
             std::vector<Scope>& env;
             ASTEvaluator* evaluator;
 
-            EvalResult operator()(const NodeStatementExit& exit) {
+            EvalResult operator()(const NodeStatementExit&) {
                 return { EvalResult::Status::Next };
             }
             EvalResult operator()(const NodeStatementExpr& stmt) {
@@ -313,7 +321,7 @@ private:
 				if (!val) return { EvalResult::Status::Failure };
 
 				if (auto assign = std::get_if<NodeExprAssignment>(&stmt.expr->var)) {
-                    if (!GenerateVariable(GetID(stmt.expr), *val, env))
+                    if (!GenerateVariable(GetID(stmt.expr), std::move(*val), env))
                     {
                         return { EvalResult::Status::Failure };
                     }
@@ -324,18 +332,30 @@ private:
            
             EvalResult operator()(const NodeStatementVar& var) {
 
-                auto val = evaluator->EvaluateExpr(var.initializer, env);
+
+				if (!var.initializer) {
+					auto dims = TypeInfo::GetArrayDimensions(var.type);
+                    ConstValue defaultValue = !dims.empty()
+                        ? ConstValue::create_array(dims)
+                        : ConstValue{};
+                   
+					if (env.empty()) env.emplace_back();
+					env.back().variable[var.id] = defaultValue;
+					return { EvalResult::Status::Next };
+				}
+
+                auto val = evaluator->EvaluateExpr(var.initializer, env); 
                 if (!val) return { EvalResult::Status::Failure };
 
                 if (env.empty()) env.emplace_back();
-                env.back().variable[var.id] = *val;
+                env.back().variable[var.id] = std::move(*val);
                 return { EvalResult::Status::Next };
             }
             EvalResult operator()(const NodeStatementAssignment& assign) {
 				if (auto value = ASTEvaluator::EvaluateExpr(assign.expr, env)) {
 
 					if (auto* ident = std::get_if<NodeExprIdent>(&assign.target->var)) {
-						SetVariableValue(ident->id, *value, env);
+						SetVariableValue(ident->id, std::move(*value), env);
                         return { EvalResult::Status::Next };
 					}
 					else if (auto lhs = ASTEvaluator::EvaluateExpr(assign.target, env, ExprContext::LValue)) {
@@ -346,10 +366,10 @@ private:
 							if (auto varVal = GetVariable(ptr->variable_id, env))
 							{
 								if (varVal->is_scalar()) {
-									SetVariableValue(ptr->variable_id, *value, env);
+									SetVariableValue(ptr->variable_id, std::move(*value), env);
+									return { EvalResult::Status::Next };
 								}
 								else if (varVal->is_array()) {
-									ConstValue updatedArray = *varVal;
 									std::vector<size_t> finalIndices = ptr->indices;
 									if (finalIndices.empty()) {
 										finalIndices.push_back(ptr->element_offset);
@@ -357,8 +377,7 @@ private:
 									else {
 										finalIndices.back() += ptr->element_offset;
 									}
-									updatedArray.set_value_at_indices(finalIndices, *value);
-									SetVariableValue(ptr->variable_id, updatedArray, env);
+									varVal->set_value_at_indices(finalIndices, std::move(*value));
 									return { EvalResult::Status::Next };
 								}
 							}
@@ -383,11 +402,23 @@ private:
                 auto cond = EvaluateExpr(stmt.condition, env);
                 if (!cond) return { EvalResult::Status::Failure };
 
-                auto is_false = std::visit([](auto Val)->bool
-                    {
-                        return (Val == 0);
-                    }, cond->get_scalar());
-                if (!is_false) {
+				bool is_true = false;
+				std::visit([&is_true, this](auto&& arg) {
+					using T = std::decay_t<decltype(arg)>;
+
+					if constexpr (std::is_same_v<T, ConstValue::Scalar>) {
+						is_true = std::visit([](auto&& s) -> bool {
+							return s != 0;
+							}, arg);
+					}
+					else if constexpr (std::is_same_v<T, std::vector<ConstValue>>) {
+						is_true = true;
+					}
+					else if constexpr (std::is_same_v<T, ConstValue::Pointer>) {
+						is_true = (GetVariable(arg.variable_id, env) != nullptr);
+					}
+					}, cond->data);
+                if (is_true) {
                     return EvaluateStatement(stmt.thenBody, env);
                 }
                 else if (stmt.elseBody) {
@@ -401,12 +432,25 @@ private:
                     auto condVal = EvaluateExpr(_while.condition, env);
                     if (!condVal) return { EvalResult::Status::Failure }; // Dynamic expression
 
-                    auto is_false = std::visit([](auto Val)->bool
-                        {
-                            return (Val == 0);
-                        }, condVal->get_scalar());
 
-                    if (is_false)
+					bool is_true = false;
+					std::visit([&is_true, this](auto&& arg) {
+						using T = std::decay_t<decltype(arg)>;
+
+						if constexpr (std::is_same_v<T, ConstValue::Scalar>) {
+							is_true = std::visit([](auto&& s) -> bool {
+								return s != 0;
+								}, arg);
+						}
+						else if constexpr (std::is_same_v<T, std::vector<ConstValue>>) {
+							is_true = true;
+						}
+						else if constexpr (std::is_same_v<T, ConstValue::Pointer>) {
+							is_true = (GetVariable(arg.variable_id, env) != nullptr);
+						}
+						}, condVal->data);
+
+                    if (!is_true)
                     {
                         break;
                     }
@@ -439,29 +483,6 @@ private:
             }
             EvalResult operator()(const NodeStatementContinue&) {
                 return { EvalResult::Status::Continue };
-            }
-            EvalResult operator()(const NodeStatementArray& arr) {
-                if (!arr.initializer) {
-                    size_t elementCount = arr.element_type->Size() / TypeInfo::GetBaseType(arr.element_type)->Size();
-
-                    ConstValue defaultArray = ConstValue::create_array(elementCount);
-
-
-                    if (env.empty()) env.emplace_back();
-                    env.back().variable[arr.id] = defaultArray;
-                    return { EvalResult::Status::Next };
-                }
-
-
-                if (auto init = EvaluateExpr(arr.initializer, env))
-                {
-                    if (env.empty()) env.emplace_back();
-                    env.back().variable[arr.id] = *init;
-					return { EvalResult::Status::Next };
-
-                }
-                return { EvalResult::Status::Failure };
-            
             }
            
         };
@@ -551,8 +572,11 @@ private:
 			return std::nullopt;
 		}
 
-		return std::visit([op](auto L, auto R) -> std::optional<ConstValue> {
-			using CommonType = std::common_type_t<decltype(L), decltype(R)>;
+		return std::visit([op](const auto& L, const auto& R) -> std::optional<ConstValue> {
+			using CommonType = std::common_type_t<
+				std::decay_t<decltype(L)>,
+				std::decay_t<decltype(R)>
+			>;
 			auto l_promoted = static_cast<CommonType>(L);
 			auto r_promoted = static_cast<CommonType>(R);
 
@@ -585,7 +609,7 @@ private:
 			}
 			}, lhsVal->get_scalar(), rhsVal->get_scalar());
 	}
-    static void SetVariableValue(const size_t& ID, const ConstValue& value, std::vector<Scope>& constants)
+    static void SetVariableValue(size_t ID, ConstValue&& value, std::vector<Scope>& constants)
     {
         if (ID == ValueID::INVALID_ID) return;
 
@@ -597,10 +621,10 @@ private:
         );
         if (find != constants.rend())
         {
-            find->variable.at(ID) = value;
+            find->variable.at(ID) = std::move(value);
         }
     }
-    static ConstValue* GetVariable(const size_t ID, std::vector<Scope>& constants)
+    static ConstValue* GetVariable(size_t ID, std::vector<Scope>& constants)
     {
         auto find = std::find_if(
             constants.rbegin(), constants.rend(),
@@ -616,11 +640,11 @@ private:
         
         return nullptr;
     }
-	static bool GenerateVariable(const size_t& ID, const ConstValue& value, std::vector<Scope>& constants)
+	static bool GenerateVariable(size_t ID, ConstValue&& value, std::vector<Scope>& constants)
 	{
 		if (ID == ValueID::INVALID_ID) return false;
 		else if (constants.empty()) { constants.emplace_back(); }
-		constants.back().variable[ID] = value;
+		constants.back().variable[ID] = std::move(value);
 
 
 		return true;
