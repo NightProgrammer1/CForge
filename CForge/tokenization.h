@@ -13,6 +13,7 @@ enum class TokenType
     semicolon,
     comma,
     int_literal,
+    float_literal,
     open_paren,
     close_paren,
     equal,
@@ -36,11 +37,19 @@ enum class TokenType
 
 
     _int,
+    _char,
     _void,
+    _short,
     _bool,
+    _float,
+    _double,
     _const,
     _static,
     _volatile,
+    _signed,
+    _unsigned,
+    _long,
+
 
     open_brace,
     close_brace,
@@ -55,6 +64,7 @@ enum class TokenType
 
     true_literal,
     false_literal,
+    _char_literal,
     less,
     greater,
     equal_equal,
@@ -135,12 +145,16 @@ public:
             {
                 std::string number;
 
-                while (PeekChar().has_value() && isdigit(PeekChar().value()))
+                bool floatNum = false;
+                while (PeekChar().has_value() && isdigit(PeekChar().value()) || PeekChar().value() == '.')
                 {
                     number += GetChar();
+                    if (PeekChar().value() == '.') {
+                        floatNum = true;
+                    }
 
                 }
-
+                if (floatNum) { tokens.push_back({ TokenType::float_literal, number, lineCount }); continue; }
                 tokens.push_back({  TokenType::int_literal, number, lineCount });
             }
 
@@ -398,6 +412,10 @@ public:
 	static inline const std::unordered_map<std::string, TokenType> keywords = {
 	{ "exit",     TokenType::exit },
 	{ "int",      TokenType::_int },
+	{ "short",      TokenType::_short },
+	{ "char",      TokenType::_char },
+	{ "float",      TokenType::_float },
+	{ "double",      TokenType::_double },
 	{ "void",     TokenType::_void },
 	{ "if",       TokenType::_if },
 	{ "else",     TokenType::_else },
@@ -412,7 +430,11 @@ public:
 	{ "NULL",     TokenType::_NULL },
     {"const", TokenType::_const},
     {"_static", TokenType::_static},
-	{ "volatile", TokenType::_volatile }
+	{ "volatile", TokenType::_volatile },
+	{ "signed", TokenType::_signed },
+	{ "unsigned", TokenType::_unsigned },
+	{ "long", TokenType::_long },
+
 
 		};
 };

@@ -1,7 +1,7 @@
 #pragma once
 #include <variant>
 #include "types.h"
-#include "register.h"
+#include "x86_64Memory.h"
 struct IRExpr;
 
 
@@ -79,6 +79,47 @@ constexpr BinaryOp TokenToBinaryOp(TokenType token)
 	default:                      assert(false && "Not a Binary token");
 	}
 }
+
+constexpr std::string BinaryOpToString(std::variant<BinaryOp, RelationalOp> op) {
+
+	if (auto bin = std::get_if<BinaryOp>(&op)) {
+		switch (*bin)
+		{
+		case BinaryOp::Add: return "+";
+		case BinaryOp::Sub: return "-";
+		case BinaryOp::Mul: return "*";
+		case BinaryOp::Div: return "/";
+		case BinaryOp::Mod:
+			break;
+		case BinaryOp::BitAnd:
+			break;
+		case BinaryOp::BitOr:
+			break;
+		case BinaryOp::BitXor:
+			break;
+		case BinaryOp::Shl:
+			break;
+		case BinaryOp::Shr:
+			break;
+		default:
+			break;
+		}
+	}
+	else if (auto comp = std::get_if<RelationalOp>(&op)) {
+		switch (*comp)
+		{
+		case RelationalOp::Equal: return "=";
+		case RelationalOp::NotEqual: return "!=";
+		case RelationalOp::Less: return "<";
+		case RelationalOp::LessEqual: return "<=";
+		case RelationalOp::Greater: return ">";
+		case RelationalOp::GreaterEqual: return ">=";
+		default:
+			break;
+		}
+	}
+
+}
 constexpr RelationalOp TokenToRelationalOp(const TokenType& op) {
 	switch (op) {
 	case TokenType::equal_equal:   return RelationalOp::Equal;
@@ -88,6 +129,21 @@ constexpr RelationalOp TokenToRelationalOp(const TokenType& op) {
 	case TokenType::greater:       return RelationalOp::Greater;
 	case TokenType::greater_equal: return RelationalOp::GreaterEqual;
 	default:                      assert(false && "Not a relational token");
+	}
+}
+
+constexpr std::string RelationalOpToString(RelationalOp op) {
+
+	switch (op)
+	{
+	case RelationalOp::Equal: return "=";
+	case RelationalOp::NotEqual: return "!=";
+	case RelationalOp::Less: return "<";
+	case RelationalOp::LessEqual: return "<=";
+	case RelationalOp::Greater: return ">";
+	case RelationalOp::GreaterEqual: return ">=";
+	default:
+		break;
 	}
 }
 constexpr LogicalOp TokenToLogicalOp(const TokenType& op) {

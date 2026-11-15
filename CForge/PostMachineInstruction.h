@@ -242,7 +242,11 @@ private:
 		{
 			move.opcode = MachineOpcode::MOVSXD;
 		}
-		else if (dst.size >= Memory::OperandSize::Dword && src.size == Memory::OperandSize::Byte && src.kind != MachineOperand::Kind::Immediate)
+		else if (dst.size >= Memory::OperandSize::Dword && src.size <= Memory::OperandSize::Word  && !src.isUnsigned && src.kind != MachineOperand::Kind::Immediate)
+		{
+			move.opcode = MachineOpcode::MOVSX;
+		}
+		else if (dst.size >= Memory::OperandSize::Dword && src.size <= Memory::OperandSize::Word && src.isUnsigned  && src.kind != MachineOperand::Kind::Immediate)
 		{
 			move.opcode = MachineOpcode::MOVZX;
 		}

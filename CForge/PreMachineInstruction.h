@@ -1,6 +1,6 @@
 #pragma once
 #include "IRTypes.h"
-#include "register.h"
+#include "x86_64Memory.h"
 #include <memory>
 #include <array>
 #include <set>
@@ -9,8 +9,9 @@ struct MachineOperand;
 enum class MachineOpcode
 {
     MOV, //x = y
-    MOVSXD,
-    MOVZX,
+    MOVSXD, // 32-bit source into 64-bit destination
+    MOVZX, // zero-extension
+    MOVSX, // sign-extension
     ADD,
     SUB,
     MUL,
@@ -55,6 +56,16 @@ enum class MachineOpcode
     SHL,
     SAR,
     SHR,
+    
+    // Floating-Point numbers instructions
+    MOVSS, // 32-bit floating-point
+	MOVSD, // 32-bit floating-point
+
+    VADDSS, //32-bit floating-point
+    VADDSD, //64-bit floating-point
+    VMULSS, 
+	VMULSD,
+    VDIVSS,
 
     INVALID
 };
@@ -112,6 +123,7 @@ struct MachineOperand
     Kind kind;
     Memory::OperandSize size = Memory::OperandSize::Dword;
     bool IsSizeSpecified = false;
+    bool isUnsigned = false;
     static MachineOperand VReg(const Register::VReg& reg, Memory::OperandSize size, bool isSizeSpecified = false)
     {
         return { VRegOperand(reg), Kind::VReg, size, isSizeSpecified };
@@ -130,9 +142,9 @@ struct MachineOperand
         
         return {  PhysicalRegOperand(reg), Kind::PhysicalReg, size, isSizeSpecified};
     }
-	static MachineOperand StackSlot(const size_t& id, const size_t& size, bool isSizeSpecified = false) //rbp - id
+	static MachineOperand StackSlot(const size_t& id, const size_t& size, bool isUnsigned, bool isSizeSpecified = false) //rbp - id
 	{
-		return {  StackSlotOperand(id), Kind::StackSlot, static_cast<Memory::OperandSize>(size), isSizeSpecified};
+		return {  StackSlotOperand(id), Kind::StackSlot, static_cast<Memory::OperandSize>(size), isSizeSpecified, isUnsigned};
 	}
     static MachineOperand StackObject(const Register::StackObject& object, const Memory::OperandSize& size) //rbp - id
     {
@@ -228,7 +240,8 @@ private:
 
         if (auto temp = std::get_if<IRExprTemp>(&expr->expr))
         {
-            auto vreg = temp->virtualRegister;
+           // temp->virtualRegister.is_float = expr->type.base_type->kind == Type::Kind::Float;
+            auto vreg = temp->virtualRegister; 
             size_t bytes = expr->type ? expr->type.Size() : 8;
             return MachineOperand::VReg(vreg, static_cast<OperandSize>(bytes));
         }
@@ -254,7 +267,7 @@ private:
         }
         else if (auto object = std::get_if<IRExprStackObject>(&expr->expr))
         {
-            return MachineOperand::StackSlot(object->id.offset, expr->type.Size());
+            return MachineOperand::StackSlot(object->id.offset, expr->type.Size(), !expr->type.base_type->is_signed);
         }
         else if (auto global = std::get_if<IRExprGlobal>(&expr->expr))
         {
@@ -350,6 +363,7 @@ private:
                 auto dstOp = ir.LowerTacExpr(move.dst);
                 auto srcOp = ir.LowerTacExpr(move.src);
 
+                
                 code.opcode = MachineOpcode::MOV;
 
 				assert(dstOp.has_value() && "ICE: Failed to lower destination in TACMove");
@@ -433,7 +447,7 @@ private:
                
                 auto cond = ir.LowerTacExpr(cjump.cond);
 				assert(cond.has_value() && "ICE: Failed to lower condition expression in TACCJump");
-
+                
                 ir.Emit(MachineInstruction{
                     MachineOpcode::TEST,
                     { *cond}

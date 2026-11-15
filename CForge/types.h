@@ -8,23 +8,378 @@
 #include <string>
 #include <iostream>
 #include <cassert>
-
+#include <cstdint>
 
 struct NodeExpr;
 struct Symbol;
 
 struct Declarator;
+
+//--------------------------------------------------------------------------------------------------------------//
+//                                                                                                              //
+//                                                Type information                                              //
+//                                                                                                              //
+//--------------------------------------------------------------------------------------------------------------//
+
+struct Type;
+
+struct Modifier
+{
+	bool is_const = false;
+	bool is_volatile = false;
+};
+struct QualifiedType {
+	std::shared_ptr<Type> base_type;
+	Modifier mod;
+
+	std::string ToString() const;
+	size_t Size() const;
+
+	bool operator==(const QualifiedType& other) const;
+
+	bool operator!=(const QualifiedType& other) const {
+		return !(*this == other);
+	}
+	operator bool() const {
+		return base_type != nullptr;
+	}
+
+	static QualifiedType MakePointer(const QualifiedType& target, const Modifier& mod);
+	static QualifiedType MakeArray(const QualifiedType& elem, size_t size);
+};
+
+struct Type {
+	enum class Kind { Void, Int, Float, Char, Short, Bool, Long, LongLong, Double, Pointer, Array, Function };
+	enum class IntegerRank {
+		Bool = 0,
+		Char,       // covers char, signed char, unsigned char
+		Short,      // covers short, unsigned short
+		Int,        // covers int, unsigned int
+		Long,       // covers long, unsigned long
+		LongLong    // covers long long, unsigned long long
+	};
+	Kind kind = Kind::Void;
+
+	QualifiedType element;
+
+	size_t array_size = 0;
+
+	bool is_signed = true;
+
+	std::vector<QualifiedType> param_types;
+	IntegerRank GetIntegerRank() {
+		switch (kind) {
+		case Type::Kind::Bool:
+			return IntegerRank::Bool;
+		case Type::Kind::Char:
+			return IntegerRank::Char;
+		case Type::Kind::Short:
+			return IntegerRank::Short;
+		case Type::Kind::Int:
+			return IntegerRank::Int;
+		default:
+			return IntegerRank::Int; // Fallback or non-integer type
+		}
+	}
+	std::string ToString() const;
+
+	static std::shared_ptr<Type> GetCommonType(const std::shared_ptr<Type>& lhs, const std::shared_ptr<Type>& rhs);
+
+
+	static std::shared_ptr<Type> MakeFloat() {
+		return std::make_shared<Type>(Kind::Float);
+	}
+	static std::shared_ptr<Type> MakeInt(bool is_unsigned = false) {
+		return std::make_shared<Type>(Kind::Int, QualifiedType{}, !is_unsigned);
+
+	}
+	static std::shared_ptr<Type> MakeChar() {
+		return std::make_shared<Type>(Kind::Char);
+
+	}
+	static std::shared_ptr<Type> MakeVoid() {
+		return std::make_shared<Type>(Kind::Void);
+
+	}
+	static std::shared_ptr<Type> MakeBool() {
+		return std::make_shared<Type>(Kind::Bool);
+
+	}
+	static std::shared_ptr<Type> MakeShort(bool is_unsigned = false) {
+		return std::make_shared<Type>(Kind::Bool, QualifiedType{}, !is_unsigned);
+
+	}
+	static std::shared_ptr<Type> MakeLong(bool is_unsigned = false) {
+		return std::make_shared<Type>(Kind::Long, QualifiedType{}, !is_unsigned);
+
+	}
+	static std::shared_ptr<Type> MakeLongLong(bool is_unsigned = false) {
+		return std::make_shared<Type>(Kind::LongLong, QualifiedType{}, !is_unsigned);
+
+	}
+
+	static std::shared_ptr<Type> MakePointer(const std::shared_ptr<Type>& target) {
+		return std::make_shared<Type>(Kind::Pointer, QualifiedType{ target });
+	}
+	size_t Size() const
+	{
+		switch (kind)
+		{
+		case Type::Kind::Char:
+			return 1;
+		case Type::Kind::Short:
+			return 2;
+		case Type::Kind::Int:
+			return 4;
+		case Type::Kind::Bool:
+			return 1;
+		case Type::Kind::Float:
+			return 4;
+		case Type::Kind::Double:
+		case Type::Kind::Pointer:
+			return 8;
+		case Type::Kind::Array:
+			return array_size * element.Size();
+		case Type::Kind::Void:
+			return 0;
+		default:
+			std::cerr << "Unknown base_type encountered in size calculation." << std::endl;
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	bool operator==(const Type& other) const {
+		if (kind != other.kind) return false;
+		if (kind == Kind::Array && array_size != other.array_size) return false;
+
+		if (element != other.element) {
+			return false;
+		}
+
+		if (kind == Kind::Function) {
+			if (param_types.size() != other.param_types.size()) return false;
+			for (size_t i = 0; i < param_types.size(); ++i) {
+				if (param_types[i] != other.param_types[i]) return false;
+			}
+		}
+		return true;
+	}
+
+	bool operator!=(const Type& other) const {
+		return !(*this == other);
+	}
+};
+
+// --- Out-of-line method implementations  ---
+inline bool QualifiedType::operator==(const QualifiedType& other) const {
+	//if (is_const != other.is_const || is_volatile != other.is_volatile) return false;
+	if (base_type == other.base_type) return true;
+	if (!base_type || !other.base_type) return false;
+	return *base_type == *other.base_type;
+}
+inline std::string QualifiedType::ToString() const {
+	if (!base_type) return "invalid";
+	std::string prefix;
+	if (mod.is_const) prefix += "const ";
+	if (mod.is_volatile) prefix += "volatile ";
+	return prefix + base_type->ToString();
+}
+
+inline size_t QualifiedType::Size() const {
+	if (!base_type) return 0;
+	return base_type->Size();
+}
+
+inline std::string Type::ToString() const {
+	std::string sign_prefix = "";
+	if (!is_signed && (kind == Type::Kind::Int || kind == Type::Kind::Short || kind == Type::Kind::Char)) {
+		sign_prefix = "unsigned ";
+	}
+
+	switch (kind)
+	{
+	case Type::Kind::Char:
+		return sign_prefix + "char";
+	case Type::Kind::Int:
+		return sign_prefix + "int";
+	case Type::Kind::Short:
+		return sign_prefix + "short";
+	case Type::Kind::Bool:
+		return "bool";
+	case Type::Kind::Float:
+		return "float";
+	case Type::Kind::Double:
+		return "double";
+	case Type::Kind::Void:
+		return "void";
+	case Type::Kind::Pointer:
+		if (element.base_type)
+			return element.ToString() + "*";
+		return "void*";
+	case Type::Kind::Array:
+		if (element.base_type)
+			return element.ToString() + "[" + std::to_string(array_size) + "]";
+		return "unknown[]";
+	}
+	return "unknown";
+}
+
+
+
+
+inline QualifiedType QualifiedType::MakePointer(const QualifiedType& target, const Modifier& mod = {}) {
+	auto t = std::make_shared<Type>();
+	t->kind = Type::Kind::Pointer;
+	t->element = target;
+	return QualifiedType{ t, mod.is_const, mod.is_volatile };
+}
+
+inline QualifiedType QualifiedType::MakeArray(const QualifiedType& elem, size_t size) {
+	auto t = std::make_shared<Type>();
+	t->kind = Type::Kind::Array;
+	t->element = elem;
+	t->array_size = size;
+	return QualifiedType{ t, false, false };
+}
+
+inline std::shared_ptr<Type> Type::GetCommonType(const std::shared_ptr<Type>& lhs, const std::shared_ptr<Type>& rhs) {
+	if (!lhs || !rhs) return nullptr;
+
+	// 1. Exact match check
+	if (*lhs == *rhs) {
+		return lhs;
+	}
+
+	// 2. Floating-point promotion (Float always wins over integers)
+	if (lhs->kind == Kind::Float || rhs->kind == Kind::Float) {
+		return MakeFloat();
+	}
+
+	// 3. Pointer Arithmetic Rules
+	// Pointer + Int -> Pointer
+	if (lhs->kind == Kind::Pointer && (rhs->kind == Kind::Int || rhs->kind == Kind::Short || rhs->kind == Kind::Char)) return lhs;
+	if ((lhs->kind == Kind::Int || lhs->kind == Kind::Short || lhs->kind == Kind::Char) && rhs->kind == Kind::Pointer) return rhs;
+
+	// Pointer - Pointer -> Int 
+	if (lhs->kind == Kind::Pointer && rhs->kind == Kind::Pointer) {
+		return MakeInt(); // or MakeSignedInt() depending on your type factory
+	}
+
+	// Array Decay to Pointer Arithmetic
+	if (lhs->kind == Kind::Array && (rhs->kind == Kind::Int || rhs->kind == Kind::Short || rhs->kind == Kind::Char)) {
+		return MakePointer(lhs->element.base_type);
+	}
+	if ((lhs->kind == Kind::Int || lhs->kind == Kind::Short || lhs->kind == Kind::Char) && rhs->kind == Kind::Array) {
+		return MakePointer(rhs->element.base_type);
+	}
+
+	// 4. Integer Promotions (Types smaller than int promote to int)
+
+	bool lhs_unsigned = !lhs->is_signed;
+	bool rhs_unsigned = !rhs->is_signed;
+	IntegerRank lhs_rank = lhs->GetIntegerRank();
+	IntegerRank rhs_rank = rhs->GetIntegerRank();
+
+	// Enforce integer promotion: char/short/bool promote at least to int
+	if (lhs_rank < IntegerRank::Int) {
+		lhs_rank = IntegerRank::Int;
+	}
+	if (rhs_rank < IntegerRank::Int) {
+		rhs_rank = IntegerRank::Int;
+	}
+
+	// Usual Arithmetic Conversion Rules (Unsigned vs Signed rank comparison)
+	bool result_is_unsigned =
+		(lhs_unsigned && lhs_rank >= rhs_rank) ||
+		(rhs_unsigned && rhs_rank >= lhs_rank);
+
+	// Determine the common rank (the higher of the two)
+	IntegerRank common_rank = (lhs_rank > rhs_rank) ? lhs_rank : rhs_rank;
+
+	// Construct and return the resulting promoted integer type based on rank and sign
+	switch (common_rank) {
+	case IntegerRank::Int:
+	case IntegerRank::Char:   // Promoted up to Int
+	case IntegerRank::Short:  // Promoted up to Int
+	case IntegerRank::Bool:   // Promoted up to Int
+		return MakeInt(result_is_unsigned);
+	case IntegerRank::Long:
+		return MakeLong(result_is_unsigned);
+	case IntegerRank::LongLong:
+		return MakeLongLong(result_is_unsigned);
+	default:
+		return MakeInt(false);
+	}
+
+	return nullptr;
+}
+
+
+struct DeclaratorModifier
+{
+	enum class Kind
+	{
+		Pointer,
+		Array,
+		Function
+	};
+
+	Kind kind;
+
+	size_t array_size = 0;
+
+	// Qualifiers specifically for this modifier level 
+	bool is_const = false;
+	bool is_volatile = false;
+
+	std::unique_ptr<DeclaratorModifier> child = nullptr;
+};
+
+//--------------------------------------------------------------------------------------------------------------//
+//                                                                                                              //
+//                                                      Declarator                                              //
+//                                                                                                              //
+//--------------------------------------------------------------------------------------------------------------//
+
+struct Declarator
+{
+	std::string name;
+	std::unique_ptr<DeclaratorModifier> modifier = nullptr;
+};
+
+struct ParsedType
+{
+	QualifiedType type;
+	Declarator declarator;
+};
+
+//--------------------------------------------------------------------------------------------------------------//
+//                                                                                                              //
+//                                                      Constant Value                                          //
+//                                                                                                              //
+//--------------------------------------------------------------------------------------------------------------//
 struct ConstValue {
 
-
-	
     inline static size_t copy_count = 0;
 	struct Pointer {
 		size_t variable_id;
 		std::vector<size_t> indices; // Tracks paths
 		int64_t element_offset = 0;
 	};
-	using Scalar = std::variant<int, size_t, double, float, bool>;
+	using Scalar = std::variant<
+		bool,          // 1-bit boolean (true / false)
+		int8_t,        // Signed 8-bit integer   (signed char)
+		uint8_t,       // Unsigned 8-bit integer (unsigned char)
+		int16_t,       // Signed 16-bit integer  (short)
+		uint16_t,      // Unsigned 16-bit integer(unsigned short)
+		int32_t,       // Signed 32-bit integer  (int)
+		uint32_t,      // Unsigned 32-bit integer(unsigned int)
+		int64_t,       // Signed 64-bit integer  (long / long long on x86-64 Linux)
+		uint64_t,      // Unsigned 64-bit integer(unsigned long / unsigned long long)
+		float,         // 32-bit single-precision float
+		double         // 64-bit double-precision float
+	>;
+
 
 	// A ConstValue is either a Scalar primitive OR an array/list of ConstValues which are compile time constant
 	std::variant<Scalar, std::vector<ConstValue>, Pointer> data;
@@ -59,6 +414,39 @@ struct ConstValue {
 
     bool is_scalar() const { return std::holds_alternative<Scalar>(data); }
     bool is_array() const { return std::holds_alternative<std::vector<ConstValue>>(data); }
+
+	static ConstValue::Scalar cast_to_type(const ConstValue::Scalar& val, const std::shared_ptr<Type>& target) {
+		return std::visit([&target](auto&& scalar) -> ConstValue::Scalar {
+			// Floating-point targets
+			if (target->kind == Type::Kind::Float) {
+				return static_cast<float>(scalar);
+			}
+			if (target->kind == Type::Kind::Double) {
+				return static_cast<double>(scalar);
+			}
+
+			size_t size = target->Size(); // Returns 1, 2, 4, or 8 bytes
+
+			if (!target->is_signed) {
+				switch (size) {
+				case 1:  return static_cast<uint8_t>(scalar);
+				case 2:  return static_cast<uint16_t>(scalar);
+				case 4:  return static_cast<uint32_t>(scalar);
+				case 8:
+				default: return static_cast<uint64_t>(scalar);
+				}
+			}
+			else {
+				switch (size) {
+				case 1:  return static_cast<int8_t>(scalar);
+				case 2:  return static_cast<int16_t>(scalar);
+				case 4:  return static_cast<int32_t>(scalar);
+				case 8:
+				default: return static_cast<int64_t>(scalar);
+				}
+			}
+			}, val);
+	}
 
 	void set_value_at_indices(const std::vector<size_t>& indices, const ConstValue& value, size_t start = 0)
 	{
@@ -144,475 +532,6 @@ private:
             (*arr)[idx].set_value_at_indices(indices, std::forward<T>(value), start + 1);
         }
     }
-};
-
-//Type information
-
-
-struct Type;
-
-struct Modifier
-{
-	bool is_const = false;
-	bool is_volatile = false;
-};
-struct QualifiedType {
-	std::shared_ptr<Type> base_type;
-	Modifier mod;
-
-	std::string ToString() const;
-	size_t Size() const;
-
-	bool operator==(const QualifiedType& other) const;
-
-	bool operator!=(const QualifiedType& other) const {
-		return !(*this == other);
-	}
-	operator bool() const {
-		return base_type != nullptr;
-	}
-
-	static QualifiedType MakeInt();
-	static QualifiedType MakeVoid();
-	static QualifiedType MakePointer(const QualifiedType& target, const Modifier& mod);
-	static QualifiedType MakeArray(const QualifiedType& elem, size_t size);
-	static QualifiedType MakeFloat();
-	static QualifiedType MakeBool();
-	static QualifiedType GetCommonType(const QualifiedType& lhs, const QualifiedType& rhs);
-};
-
-struct Type {
-	enum class Kind { Void, Int, Float, Bool, Pointer, Array, Function };
-
-	Kind kind = Kind::Void;
-
-	QualifiedType element; 
-
-	size_t array_size = 0;
-
-	bool is_signed = true;
-
-	std::vector<QualifiedType> param_types;
-
-	std::string ToString() const;
-
-	size_t Size() const
-	{
-		switch (kind)
-		{
-		case Type::Kind::Int:
-			return 4;
-		case Type::Kind::Bool:
-			return 1;
-		case Type::Kind::Float:
-			return 4;
-		case Type::Kind::Pointer:
-			return 8;
-		case Type::Kind::Array:
-			return array_size * element.Size();
-		case Type::Kind::Void:
-			return 0;
-		default:
-			std::cerr << "Unknown base_type encountered in size calculation." << std::endl;
-			exit(EXIT_FAILURE);
-		}
-	}
-
-	bool operator==(const Type& other) const {
-		if (kind != other.kind) return false;
-		if (kind == Kind::Array && array_size != other.array_size) return false;
-
-		if (element != other.element) {
-			return false;
-		}
-
-		if (kind == Kind::Function) {
-			if (param_types.size() != other.param_types.size()) return false;
-			for (size_t i = 0; i < param_types.size(); ++i) {
-				if (param_types[i] != other.param_types[i]) return false;
-			}
-		}
-		return true;
-	}
-
-	bool operator!=(const Type& other) const {
-		return !(*this == other);
-	}
-};
-
-// --- Out-of-line method implementations  ---
-inline bool QualifiedType::operator==(const QualifiedType& other) const {
-	//if (is_const != other.is_const || is_volatile != other.is_volatile) return false;
-	if (base_type == other.base_type) return true;
-	if (!base_type || !other.base_type) return false;
-	return *base_type == *other.base_type; 
-}
-inline std::string QualifiedType::ToString() const {
-	if (!base_type) return "invalid";
-	std::string prefix;
-	if (mod.is_const) prefix += "const ";
-	if (mod.is_volatile) prefix += "volatile ";
-	return prefix + base_type->ToString();
-}
-
-inline size_t QualifiedType::Size() const {
-	if (!base_type) return 0;
-	return base_type->Size();
-}
-
-inline std::string Type::ToString() const {
-	switch (kind)
-	{
-	case Type::Kind::Int:
-		return "int";
-	case Type::Kind::Bool:
-		return "bool";
-	case Type::Kind::Float:
-		return "float";
-	case Type::Kind::Void:
-		return "void";
-	case Type::Kind::Pointer:
-		if (element.base_type)
-			return element.ToString() + "*";
-		return "void*";
-	case Type::Kind::Array:
-		if (element.base_type)
-			return element.ToString() + "[" + std::to_string(array_size) + "]";
-	}
-	return "unknown";
-}
-
-inline QualifiedType QualifiedType::MakeInt() {
-	auto t = std::make_shared<Type>();
-	t->kind = Type::Kind::Int;
-	return QualifiedType{ t, false, false };
-}
-
-inline QualifiedType QualifiedType::MakeVoid() {
-	auto t = std::make_shared<Type>();
-	t->kind = Type::Kind::Void;
-	return QualifiedType{ t, false, false };
-}
-
-inline QualifiedType QualifiedType::MakePointer(const QualifiedType& target, const Modifier& mod = {}) {
-	auto t = std::make_shared<Type>();
-	t->kind = Type::Kind::Pointer;
-	t->element = target;
-	return QualifiedType{ t, mod.is_const, mod.is_volatile };
-}
-
-inline QualifiedType QualifiedType::MakeArray(const QualifiedType& elem, size_t size) {
-	auto t = std::make_shared<Type>();
-	t->kind = Type::Kind::Array;
-	t->element = elem;
-	t->array_size = size;
-	return QualifiedType{ t, false, false };
-}
-
-inline QualifiedType QualifiedType::MakeFloat() {
-	auto t = std::make_shared<Type>();
-	t->kind = Type::Kind::Float;
-	return QualifiedType{ t, false, false };
-}
-
-inline QualifiedType QualifiedType::MakeBool() {
-	auto t = std::make_shared<Type>();
-	t->kind = Type::Kind::Bool;
-	return QualifiedType{ t, false, false };
-}
-
-inline QualifiedType QualifiedType::GetCommonType(const QualifiedType& lhs, const QualifiedType& rhs) {
-	if (!lhs.base_type || !rhs.base_type) return QualifiedType{};
-
-	// Floating-point promotion (Float always wins)
-	if (lhs.base_type->kind == Type::Kind::Float || rhs.base_type->kind == Type::Kind::Float) {
-		if ((lhs.base_type->kind == Type::Kind::Int || lhs.base_type->kind == Type::Kind::Float) &&
-			(rhs.base_type->kind == Type::Kind::Int || rhs.base_type->kind == Type::Kind::Float)) {
-			return MakeFloat();
-		}
-	}
-
-	// Pointer Arithmetic Rules
-	// Pointer + Int -> Pointer
-	if (lhs.base_type->kind == Type::Kind::Pointer && rhs.base_type->kind == Type::Kind::Int) return lhs;
-	if (lhs.base_type->kind == Type::Kind::Int && rhs.base_type->kind == Type::Kind::Pointer) return rhs;
-
-	// Pointer - Pointer -> Int 
-	if (lhs.base_type->kind == Type::Kind::Pointer && rhs.base_type->kind == Type::Kind::Pointer) {
-		return MakeInt();
-	}
-	// Array Decay to Pointer Arithmetic
-	if (lhs.base_type->kind == Type::Kind::Array && rhs.base_type->kind == Type::Kind::Int) {
-		return MakePointer(lhs.base_type->element, lhs.mod);
-	}
-	if (lhs.base_type->kind == Type::Kind::Int && rhs.base_type->kind == Type::Kind::Array) {
-		return MakePointer(rhs.base_type->element, rhs.mod);
-	}
-	if (*lhs.base_type == *rhs.base_type) {
-		QualifiedType result = lhs;
-		result.mod.is_const = false;
-		result.mod.is_volatile = false;
-		return result;
-	}
-
-	// Invalid binary base_type combination
-	return QualifiedType{};
-}
-
-struct DeclaratorModifier
-{
-	enum class Kind
-	{
-		Pointer,
-		Array,
-		Function
-	};
-
-	Kind kind;
-
-	size_t array_size = 0;
-
-	// Qualifiers specifically for this modifier level (e.g., pointer constness)
-	bool is_const = false;
-	bool is_volatile = false;
-
-	std::unique_ptr<DeclaratorModifier> child = nullptr;
-};
-
-    //--------------------------------------------------------------------------------------------------------------//
-    //                                                                                                              //
-    //                                                      Declarator                                              //
-    //                                                                                                              //
-    //--------------------------------------------------------------------------------------------------------------//
-
-struct Declarator
-{
-    std::string name;
-    std::unique_ptr<DeclaratorModifier> modifier = nullptr;
-};
-
-struct ParsedType
-{
-	QualifiedType type;
-    Declarator declarator;
-};
-
-
-struct SourceLocation
-{
-
-};
-struct Identifier {
-    std::string name;
-    SourceLocation location; // Tracks line/col for compiler error messages
-};
-
-struct NodeFunction;
-
-struct NodeExprBinary
-{
-    TokenType op;
-
-    NodeExpr* left = nullptr;
-    NodeExpr* right = nullptr;
-
-};
-
-struct NodeExprUnary
-{
-    TokenType op;
-    NodeExpr* expr = nullptr;
-
-};
-
-struct NodeExprCompare
-{
-    TokenType op;
-    NodeExpr* left = nullptr;
-    NodeExpr* right = nullptr;
-
-};
-struct NodeExprIntLit
-{
-    int value = 0;
-};
-struct NodeExprBoolLit
-{
-    bool value = false;
-
-};
-
-struct NodeExprIdent
-{
-    std::string name;
-    size_t id = 0;
-    QualifiedType type;
-    std::shared_ptr<Symbol> symbol;
-
-};
-
-struct NodeExprVoid
-{
-
-};
-
-struct NodeExprAssignment
-{
-    NodeExpr* target;
-    NodeExpr* expr = nullptr;
-
-};
-
-struct NodeExprCall
-{
-    NodeFunction* func = nullptr;
-    std::vector<NodeExpr*> args;
-    std::string name;
-
-};
-
-struct NodeExprInitList {
-    std::vector<NodeExpr*> values;
-};
-
-struct NodeExprArrayAccess {
-    NodeExpr* array;
-    std::vector<NodeExpr*> indices;
-};
-
-
-enum class ExprContext {
-    RValue,
-    LValue
-};
-
-typedef std::variant<
-    NodeExprIntLit,
-    NodeExprIdent, // 1
-    NodeExprBinary, // 2
-    NodeExprBoolLit, // 3
-    NodeExprCompare, // 4
-    NodeExprVoid,    // 5
-    NodeExprUnary,   // 6
-    NodeExprCall,    // 7
-    NodeExprAssignment, // 8
-    NodeExprInitList, // 9
-    NodeExprArrayAccess // 10
-> NodeExpression;
-struct NodeExpr
-{
-
-    NodeExpression var;
-    QualifiedType type;
-};
-
-
-struct NodeStatementExit
-{
-    NodeExpr* expr = nullptr;
-};
-
-
-
-struct NodeStatementVar
-{
-    size_t id = 0;
-    QualifiedType type;
-    std::string name;
-    std::shared_ptr<Symbol> symbol = nullptr;
-    NodeExpr* initializer = nullptr;
-
-    std::optional<ConstValue> compiled_constant = std::nullopt;
-};
-
-
-struct NodeStatement;
-
-
-struct NodeBlock
-{
-    std::vector<NodeStatement*> statements;
-
-};
-
-struct NodeStatementIf
-{
-    NodeExpr* condition = nullptr;
-    NodeStatement* thenBody = nullptr;
-    NodeStatement* elseBody = nullptr;
-};
-
-struct NodeStatementWhile
-{
-    NodeExpr* condition = nullptr;
-    NodeStatement* body = nullptr;
-    NodeExpr* update = nullptr;
-};
-
-struct NodeStatementExpr
-{
-    NodeExpr* expr = nullptr;
-};
-struct NodeStatementReturn
-{
-    NodeExpr* expr = nullptr;
-
-};
-struct NodeStatementBreak
-{
-
-};
-
-struct NodeStatementContinue
-{
-
-};
-struct NodeStatementAssignment
-{
-    std::string name; 
-    NodeExpr* target = nullptr;
-    NodeExpr* expr = nullptr;
-
-};
-
-struct NodeStatement
-{
-    std::variant<
-        NodeStatementExit,
-        NodeStatementVar, // 1 
-        NodeBlock, // 2
-        NodeStatementIf, // 3
-        NodeStatementWhile, // 4
-        NodeStatementBreak, // 5
-        NodeStatementContinue, // 6
-        NodeStatementExpr, // 7
-        NodeStatementReturn, // 8
-        NodeStatementAssignment // 9
-    > stat;
-};
-
-
-struct Parameter
-{
-    std::string name;                   
-    QualifiedType type;
-    size_t id = 0;                      
-};
-struct NodeFunction
-{
-    std::string name;
-    std::vector<Parameter> parameters;
-    std::optional<NodeBlock> body;
-    QualifiedType retType;
-    size_t stack_size = 0;
-};
-
-struct NodeTopLevel {
-	std::variant<NodeFunction*, NodeStatementVar*> decl;
-};
-
-struct NodeProg {
-	std::vector<NodeTopLevel> items;
 };
 
 
@@ -721,12 +640,17 @@ namespace TypeInfo {
 		if (!qt.base_type) return 0;
 		switch (qt.base_type->kind)
 		{
+		case Type::Kind::Char:
+			return 1;
+		case Type::Kind::Short:
+			return 2;
 		case Type::Kind::Int:
 			return 4;
 		case Type::Kind::Bool:
 			return 1;
 		case Type::Kind::Float:
 			return 4;
+		case Type::Kind::Double:
 		case Type::Kind::Pointer:
 			return 8;
 		case Type::Kind::Array:
@@ -749,12 +673,18 @@ namespace TypeInfo {
 
 		switch (qt.base_type->kind)
 		{
+		case Type::Kind::Char:
+			return prefix + "char";
+		case Type::Kind::Short:
+			return prefix + "short";
 		case Type::Kind::Int:
 			return prefix + "int";
 		case Type::Kind::Bool:
 			return prefix + "bool";
 		case Type::Kind::Float:
 			return prefix + "float";
+		case Type::Kind::Double:
+			return prefix + "double";
 		case Type::Kind::Void:
 			return prefix + "void";
 		case Type::Kind::Pointer:
@@ -783,12 +713,17 @@ namespace TypeInfo {
 		if (!qt.base_type) return 0;
 		switch (qt.base_type->kind)
 		{
+		case Type::Kind::Char:
+			return 1;
+		case Type::Kind::Short:
+			return 2;
 		case Type::Kind::Int:
 			return alignof(int);
 		case Type::Kind::Bool:
 			return 1;
 		case Type::Kind::Float:
 			return 4;
+		case Type::Kind::Double:
 		case Type::Kind::Array:
 			return 8;
 		case Type::Kind::Pointer:
@@ -892,10 +827,7 @@ namespace TypeInfo {
 
 	inline QualifiedType MakePointerType(const QualifiedType& qt)
 	{
-		Type result;
-		result.kind = Type::Kind::Pointer;
-		result.element = qt;
-		return QualifiedType{ std::make_shared<Type>(result), false, false };
+		return QualifiedType{ std::make_shared<Type>(Type::Kind::Pointer, qt), false, false };
 	}
 }
 

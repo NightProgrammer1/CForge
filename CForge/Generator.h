@@ -237,6 +237,19 @@ private:
 			_output << "\n";
 			break;
 		}
+		case MachineOpcode::MOVSX:
+		{
+			assert(ins.operands.size() >= 2 && "MOVSX requires destination and source operands");
+			const auto& dst = ins.operands[0];
+			const auto& src = ins.operands[1];
+
+			_output << "    movsx ";
+			_output << FormatOperand(dst);
+			_output << ", ";
+			_output << FormatOperand(src);
+			_output << "\n";
+			break;
+		}
 		case MachineOpcode::STORE:
 		{
 			auto& memDst = ins.operands[0];

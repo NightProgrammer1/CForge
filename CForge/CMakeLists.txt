@@ -20,7 +20,8 @@ add_executable(cf
     "RegisterAllocation.h" 
     "PostMachineInstruction.h"
     "ConstantFolder.h"
-    "ASTEvaluator.h" )
+    "ASTEvaluator.h" 
+    "ASTTypes.h")
 
 # Set C++20 standard
 if (CMAKE_VERSION VERSION_GREATER 3.12)

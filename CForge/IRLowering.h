@@ -40,14 +40,16 @@ private:
 			IRLowering* irLowering;
 			const NodeExpr& expr;
 			ExprContext ctx;
-			IRExpr* operator()(const NodeExprIntLit& intLit)
+
+			IRExpr* operator()(const NodeExprLiteral& lit)
 			{
-				return irLowering->_allocator.new_object<IRExpr>( IRExprConst{ intLit.value } );
+				ConstValue::Scalar scalarVal = std::visit([](auto&& val) -> ConstValue::Scalar {
+					return val; 
+					}, lit.value);
+
+				return irLowering->_allocator.new_object<IRExpr>(IRExprConst{ scalarVal });
 			}
-			IRExpr* operator()(const NodeExprBoolLit& boolLit)
-			{
-				return irLowering->_allocator.new_object<IRExpr>(IRExprConst{ static_cast<int>(boolLit.value) });
-			}
+			
 			IRExpr* operator()(const NodeExprIdent& ident)
 			{
 				auto type = ident.symbol->type;
@@ -320,10 +322,10 @@ private:
 					IRExpr* stride = nullptr;
 					size_t elementSize = TypeInfo::GetTypeSize(un.expr->type.base_type->element);
 					if (TypeInfo::IsPointer(un.expr->type)) {
-						stride = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ static_cast<int>(elementSize) },QualifiedType::MakeInt());
+						stride = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ static_cast<int>(elementSize) }, QualifiedType{ Type::MakeInt() });
 					}
 					else {
-						stride = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ 1 },QualifiedType::MakeInt());
+						stride = irLowering->_allocator.new_object<IRExpr>(IRExprConst{ 1 }, QualifiedType{ Type::MakeInt() });
 					}
 
 					irLowering->Emit(IRStatementMove{ oldTemp, target });
@@ -403,11 +405,11 @@ private:
 					}
 					else {
 						auto* strideExpr = irLowering->_allocator.new_object<IRExpr>(
-							IRExprConst{ static_cast<size_t>(stride) },QualifiedType::MakeInt()
+							IRExprConst{ static_cast<size_t>(stride) }, QualifiedType{ Type::MakeInt() }
 						);
 
 						dimOffset = irLowering->_allocator.new_object<IRExpr>(
-							IRExprBinop{ BinaryOp::Mul, index, strideExpr },QualifiedType::MakePointer(QualifiedType::MakeInt())
+							IRExprBinop{ BinaryOp::Mul, index, strideExpr },QualifiedType::MakePointer(QualifiedType{ Type::MakeInt() })
 						);
 					}
 
@@ -416,14 +418,14 @@ private:
 					}
 					else {
 						totalOffset = irLowering->_allocator.new_object<IRExpr>(
-							IRExprBinop{ BinaryOp::Add, totalOffset, dimOffset }, QualifiedType::MakePointer(QualifiedType::MakeInt())
+							IRExprBinop{ BinaryOp::Add, totalOffset, dimOffset }, QualifiedType::MakePointer(QualifiedType{ Type::MakeInt() })
 						);
 					}
 				}
 				if (totalOffset)
 				{
 					base = irLowering->_allocator.new_object<IRExpr>(
-						IRExprBinop{ BinaryOp::Add, base, totalOffset },QualifiedType::MakePointer(QualifiedType::MakeInt())
+						IRExprBinop{ BinaryOp::Add, base, totalOffset },QualifiedType::MakePointer(QualifiedType{ Type::MakeInt() })
 					);
 				}
 				size_t totalDimensions = TypeInfo::GetArrayDimensions(arrayExpr->type).size();
@@ -633,7 +635,7 @@ private:
 		}
 
 		auto address = _allocator.new_object<IRExpr>(
-			IRExprAddressOf{ base },QualifiedType::MakePointer(QualifiedType::MakeInt())
+			IRExprAddressOf{ base },QualifiedType::MakePointer(QualifiedType{ Type::MakeInt() })
 		);
 
 		auto offsetExpr = _allocator.new_object<IRExpr>(
@@ -641,7 +643,7 @@ private:
 				ConstValue::Scalar{
 					static_cast<int>(offset)
 				}
-			},QualifiedType::MakeInt()
+			}, QualifiedType{ Type::MakeInt() }
 		);
 
 		auto elementAddress =
@@ -650,12 +652,12 @@ private:
 					TokenToBinaryOp(TokenType::plus),
 					address,
 					offsetExpr,
-				},QualifiedType::MakePointer(QualifiedType::MakeInt())
+				},QualifiedType::MakePointer(QualifiedType{ Type::MakeInt() })
 			);
 
 		auto destination =
 			_allocator.new_object<IRExpr>(
-				IRExprMem{ elementAddress },QualifiedType::MakePointer(QualifiedType::MakeInt())
+				IRExprMem{ elementAddress }, QualifiedType::MakePointer(QualifiedType{ Type::MakeInt() })
 			);
 
 		auto src = LowerExpr(initializer);

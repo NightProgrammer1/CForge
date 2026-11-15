@@ -1,11 +1,16 @@
 #pragma once
 #include <array>
+//x86-64 Registers and Memory
 namespace Register {													
-	enum class Reg : size_t { RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11, RBX, R12, R13, R14, R15, RBP, RSP };
-	constexpr size_t NUM_OF_REGISTERS = 8;
+	enum class Reg : size_t { RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11, RBX, R12, R13, R14, R15, RBP, RSP,
+							  XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7, XMM8, XMM9, XMM10, XMM11, XMM12,
+							  XMM13, XMM14, XMM15
+	};
+	constexpr size_t NUM_OF_GENERAL_REGISTERS = 8;
+	constexpr size_t NUM_OF_SIMD_REGISTERS = 15;
 	constexpr size_t ABI_ARGS = 6;
 
-	static constexpr std::array<Reg, NUM_OF_REGISTERS> registers = {
+	static constexpr std::array<Reg, NUM_OF_GENERAL_REGISTERS> registers = {
 			Reg::RAX,
 			Reg::RCX,
 			Reg::RDX,
@@ -14,6 +19,23 @@ namespace Register {
 			Reg::R8,
 			Reg::R9,
 			Reg::R10,
+	};
+	static constexpr std::array<Reg, NUM_OF_SIMD_REGISTERS> SIMD_registers = {
+			Reg::XMM0,
+			Reg::XMM1,
+			Reg::XMM2,
+			Reg::XMM3,
+			Reg::XMM4,
+			Reg::XMM5,
+			Reg::XMM6,
+			Reg::XMM8,
+			Reg::XMM9,
+			Reg::XMM10,
+			Reg::XMM11,
+			Reg::XMM12,
+			Reg::XMM13,
+			Reg::XMM14,
+			Reg::XMM15
 	};
 	static const std::array<Reg, ABI_ARGS> PARAM_REGS = { Reg::RDI, Reg::RSI, Reg::RDX, Reg::RCX, Reg::R8, Reg::R9 };
 	static constexpr std::array<Register::Reg, 5> calleSavedRegisters = { Reg::RBX, Reg::R12, Reg::R13, Reg::R14, Reg::R15 };
@@ -35,6 +57,7 @@ namespace Register {
 	{
 		size_t id = 0;
 		size_t size = 0;
+		bool is_float = false;
 		bool operator==(const VReg& other) const
 		{
 			return id == other.id;
@@ -243,7 +266,29 @@ namespace Memory
 			case OperandSize::Qword: return "r15";
 			}
 			break;
+		case Register::Reg::XMM0: return "xmm0";
+		case Register::Reg::XMM1: return "xmm1";
+		case Register::Reg::XMM2: return "xmm2";
+		case Register::Reg::XMM3: return "xmm3";
+		case Register::Reg::XMM4: return "xmm4";
+		case Register::Reg::XMM5: return "xmm5";
+		case Register::Reg::XMM6: return "xmm6";
+		case Register::Reg::XMM7: return "xmm7";
+		case Register::Reg::XMM8: return "xmm8";
+		case Register::Reg::XMM9: return "xmm9";
+		case Register::Reg::XMM10: return "xmm10";
+		case Register::Reg::XMM11: return "xmm11";
+		case Register::Reg::XMM12: return "xmm12";
+		case Register::Reg::XMM13: return "xmm13";
+		case Register::Reg::XMM14: return "xmm14";
+		case Register::Reg::XMM15: return "xmm15";
+
+
+
 		}
+
+
+
 		return "rax";
 	}
 

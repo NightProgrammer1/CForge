@@ -20,11 +20,8 @@ private:
 		{
 			SemanticAnalyzer* analyzer;
 			NodeExpr& expr;
-			QualifiedType operator()(const NodeExprIntLit& ) const {
-				return expr.type;
-			}
 
-			QualifiedType operator()(const NodeExprBoolLit&) const {
+			QualifiedType operator()(const NodeExprLiteral&) const {
 				return expr.type;
 			}
 			QualifiedType operator()(NodeExprCall& call) const {
@@ -132,7 +129,7 @@ private:
 				}
 
 				// Comparisons and logical operations ALWAYS evaluate to Bool 
-				return QualifiedType::MakeBool();
+				return QualifiedType{ Type::MakeBool() };
 			}
 			QualifiedType operator()(NodeExprBinary& expr) const
 			{
@@ -148,9 +145,9 @@ private:
 				{
 					expr.right->type = QualifiedType::MakePointer(rightType.base_type->element);
 				}
-				if (auto commonType = QualifiedType::GetCommonType(leftType, rightType))
+				if (auto commonType = Type::GetCommonType(leftType.base_type, rightType.base_type))
 				{
-					return commonType;
+					return QualifiedType{ commonType };
 				}
 
 				std::cerr << "Invalid binary type combination in binary expression: " << TypeInfo::TypeToString(leftType) << " - " << TypeInfo::TypeToString(rightType);
@@ -220,7 +217,7 @@ private:
 					QualifiedType nextType = analyzer->AnalyzeExpression(*list.values[i]);
 
 					// handle mixed types (e.g., int + float -> float)
-					elementType = QualifiedType::GetCommonType(elementType, nextType);
+					elementType = QualifiedType{ Type::GetCommonType(elementType.base_type, nextType.base_type) };
 
 					if (!elementType.base_type) {
 						std::cerr << "Semantic Error: Incompatible types in initializer list." << std::endl;
@@ -455,10 +452,14 @@ private:
 	
 		// Allow any integer literal with a value of 0 (like NULL) to be assigned to ANY pointer type
 		if (dest.base_type->kind == Type::Kind::Pointer) {
-			if (auto intLit = std::get_if<NodeExprIntLit>(&src.var)) {
-				if (intLit->value == 0) {
-					return true;
-				}
+			if (auto intLit = std::get_if<NodeExprLiteral>(&src.var)) {
+
+				return std::visit([](auto&& val)  {
+					if (val == 0) {
+						return true;
+					}
+					}, intLit->value);
+				
 			}
 		}
 
@@ -598,7 +599,7 @@ private:
 			else if (initList->values.size() < max_allowed_elements)
 			{
 				for (size_t i = 0; i <( max_allowed_elements - initList->values.size()); i++) {
-					auto val = _allocator.new_object<NodeExpr>(NodeExprIntLit{ 0 });
+					auto val = _allocator.new_object<NodeExpr>(NodeExprLiteral{ 0 });
 					initList->values.push_back(val);
 				}
 			}

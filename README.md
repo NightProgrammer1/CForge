@@ -22,7 +22,7 @@
 
 * **Global variables**
 
-* **Primitives:** Core signed & const integers (`int`)
+* **Primitives:** Core signed & const integers (`int, short, char, long, longlong`)
 
   * **Pointers:** Full pointer arithmetic, pointer subtraction, and dereferencing
 
@@ -71,6 +71,8 @@ cf input.c
 cf input.c -o custom_output
 # Print the generated Abstract Syntax Tree (AST) and exit early
 cf input.c --print-ast
+# Print the generated Three code address (TAC) and exit early
+cf input.c --print-tac
 # Print the generated x86-64 assembly during compilation
 cf input.c --print-assembly
 # Print the debug information (compile speed, ect)

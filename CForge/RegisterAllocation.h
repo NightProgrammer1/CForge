@@ -2,7 +2,7 @@
 #include <algorithm>
 #include "LivenessAnalysis.h"
 #include "PreMachineInstruction.h"
-#include "register.h"
+#include "x86_64Memory.h"
 #include <array>
 #include <set>
 
@@ -105,17 +105,26 @@ private:
 				return;
 			}
 		}
-		auto reg = GetNextAvailableRegister(active);
+
+		std::optional<Register::Reg> reg = std::nullopt;
+		if (vreg.is_float)
+		{
+			reg = GetNextAvailableRegisterSIMD(active);
+			
+		}
+		else {
+			reg = GetNextAvailableRegisterG(active);
+		}
+
 		if (reg)
 		{
 			allocation[vreg] = *reg;
 			active.emplace_back(*reg, interval);
 		}
-		else{
-			if(!spillSlots.contains(vreg))
+		else {
+			if (!spillSlots.contains(vreg))
 				AllocateSpillSlot(vreg);
 		}
-		
 		
 	}
 	void RewriteRegisters(MachineFunction& function)
@@ -150,7 +159,7 @@ private:
 
 			if (auto it = allocation.find(vreg); it != allocation.end())
 			{
-				operand = MachineOperand::PhysicalReg(it->second, operand.size);
+				operand = MachineOperand::PhysicalReg(it->second, operand.size, operand.isUnsigned);
 				return;
 			}
 
@@ -178,7 +187,8 @@ private:
 
 		return false;
 	}
-	std::optional<Register::Reg> GetNextAvailableRegister(
+	//Gives next available general purpose register
+	std::optional<Register::Reg> GetNextAvailableRegisterG(
 		const std::vector<std::pair<Register::Reg, LiveInterval>>& active)
 	{
 		for (Register::Reg reg : Register::registers)
@@ -189,7 +199,18 @@ private:
 
 		return std::nullopt;
 	}
+	//Gives next available SIMD registers
+	std::optional<Register::Reg> GetNextAvailableRegisterSIMD(
+		const std::vector<std::pair<Register::Reg, LiveInterval>>& active)
+	{
+		for (Register::Reg reg : Register::SIMD_registers)
+		{
+			if (!IsRegisterActive(reg, active))
+				return reg;
+		}
 
+		return std::nullopt;
+	}
 	std::optional<Register::Reg> TryGetFreeCalleeSavedReg(const std::vector<std::pair<Register::Reg, LiveInterval>>& active) const
 	{
 		for (Register::Reg reg : Register::calleSavedRegisters)

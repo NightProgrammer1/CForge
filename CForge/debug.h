@@ -67,10 +67,14 @@ void PrintNode(const NodeExpr* expr, const std::string& prefix, bool is_last) {
         bool is_last;
         std::string type_suffix;
 
-        void operator()(const NodeExprIntLit& lit) const {
-            std::string text = fmt::format("{}IntLit{}: {}{}{}{}", COL_EXPR, COL_RESET, COL_LIT, lit.value, COL_RESET, type_suffix);
-            PrintBranch(prefix, is_last, text);
-        }
+		void operator()(const NodeExprLiteral& lit) const {
+			std::string val_str = std::visit([](auto&& v) {
+				return fmt::format("{}", v);
+				}, lit.value);
+
+			std::string text = fmt::format("{}Literal{}: {}{}{}{}", COL_EXPR, COL_RESET, COL_LIT, val_str, COL_RESET, type_suffix);
+			PrintBranch(prefix, is_last, text);
+		}
         void operator()(const NodeExprIdent& ident) const {
             std::string text = fmt::format("{}Identifier{}({}{}{}){}", COL_EXPR, COL_RESET, COL_LIT, ident.name, COL_RESET, type_suffix);
             PrintBranch(prefix, is_last, text);
@@ -82,9 +86,6 @@ void PrintNode(const NodeExpr* expr, const std::string& prefix, bool is_last) {
             std::string next_prefix = prefix + (is_last ? "     " : "│    ");
             PrintNode(bin.left, next_prefix, false);
             PrintNode(bin.right, next_prefix, true);
-        }
-        void operator()(const NodeExprBoolLit&) const {
-            PrintBranch(prefix, is_last, fmt::format("{}BoolLit{}{}", COL_EXPR, COL_RESET, type_suffix));
         }
         void operator()(const NodeExprCompare& comp) const {
             std::string text = fmt::format("{}CompareExpr{} ({}{}{}){}", COL_EXPR, COL_RESET, COL_OP, Tokenizer::ToString(comp.op), COL_RESET, type_suffix);
@@ -260,7 +261,6 @@ void PrintFunction(const NodeFunction& func, bool is_last_func)
 	}
 }
 
-
 void PrintAST(const NodeProg& prog) {
 	fmt::print("{}[TranslationUnit]{}\n", COL_EXPR, COL_RESET);
 
@@ -338,4 +338,243 @@ void PrintAST(const NodeProg& prog) {
 	}
 
 	
+}
+
+
+void PrintIRNode(const IRExpr* expr, const std::string& prefix, bool is_last) {
+	if (!expr) return;
+	std::string type_suffix = "";
+	if (expr->type) {
+		type_suffix = fmt::format(" {}[{}{}{}]", COL_TYPE, COL_LIT, expr->type.ToString(), COL_RESET);
+	}
+	struct Visitor {
+		std::string prefix;
+		bool is_last;
+		std::string type_suffix;
+
+		void operator()(const IRExprConst& c) const {
+			std::string val_str = std::visit([](auto&& v) {
+				return fmt::format("{}", v);
+				}, c.data);
+			std::string text = fmt::format("{}IRExprConst{}: {}{}{}{}", COL_EXPR, COL_RESET, COL_LIT, val_str, COL_RESET, type_suffix);
+			PrintBranch(prefix, is_last, text);
+		}
+		void operator()(const IRExprName& n) const {
+			std::string text = fmt::format("{}IRExprName{}: {}{}{}{}", COL_EXPR, COL_RESET, COL_LIT, n.name, COL_RESET, type_suffix);
+			PrintBranch(prefix, is_last, text);
+		}
+		void operator()(const IRExprTemp& t) const {
+			std::string text = fmt::format("{}IRExprTemp{}: t{}{}{}{}", COL_EXPR, COL_RESET, COL_LIT, t.virtualRegister.id, COL_RESET, type_suffix);
+			PrintBranch(prefix, is_last, text);
+		}
+		void operator()(const IRExprStackObject& s) const {
+			std::string text = fmt::format("{}IRExprStackObject{}: offset {}{}{}{}", COL_EXPR, COL_RESET, COL_LIT, s.id.offset, COL_RESET, type_suffix);
+			PrintBranch(prefix, is_last, text);
+		}
+		void operator()(const IRExprBinop& binop) const {
+			std::string op_str = "";
+			std::string text = fmt::format("{}IRExprBinop{} ({}{}{}){}", COL_EXPR, COL_RESET, COL_OP, op_str, COL_RESET, type_suffix);
+			PrintBranch(prefix, is_last, text);
+
+			std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+			PrintIRNode(binop.left, next_prefix, false);
+			PrintIRNode(binop.right, next_prefix, true);
+		}
+		void operator()(const IRExprMem& mem) const {
+			std::string text = fmt::format("{}IRExprMem{}{}", COL_EXPR, COL_RESET, type_suffix);
+			PrintBranch(prefix, is_last, text);
+			std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+			PrintIRNode(mem.address, next_prefix, true);
+		}
+		void operator()(const IRExprDereference& deref) const {
+			std::string text = fmt::format("{}IRExprDereference{}{}", COL_EXPR, COL_RESET, type_suffix);
+			PrintBranch(prefix, is_last, text);
+			std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+			PrintIRNode(deref.address, next_prefix, true);
+		}
+		void operator()(const IRExprCall& call) const {
+			std::string text = fmt::format("{}IRExprCall{}{}", COL_EXPR, COL_RESET, type_suffix);
+			PrintBranch(prefix, is_last, text);
+			std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+			PrintIRNode(call.func, next_prefix, call.args.empty());
+			for (size_t i = 0; i < call.args.size(); ++i) {
+				PrintIRNode(call.args[i], next_prefix, i == call.args.size() - 1);
+			}
+		}
+		void operator()(const IRExprESEQ& eseq) const {
+			std::string text = fmt::format("{}IRExprESEQ{}{}", COL_EXPR, COL_RESET, type_suffix);
+			PrintBranch(prefix, is_last, text);
+			std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+			PrintIRNode(eseq.expr, next_prefix, true);
+		}
+		void operator()(const IRExprAddressOf& addr) const {
+			std::string text = fmt::format("{}IRExprAddressOf{}{}", COL_EXPR, COL_RESET, type_suffix);
+			PrintBranch(prefix, is_last, text);
+			std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+			PrintIRNode(addr.object, next_prefix, true);
+		}
+		void operator()(const IRExprGlobal& global) const {
+			std::string text = fmt::format("{}IRExprGlobal{}: {}{}{}{}", COL_EXPR, COL_RESET, COL_LIT, global.name, COL_RESET, type_suffix);
+			PrintBranch(prefix, is_last, text);
+		}
+
+	} visitor{ prefix, is_last, type_suffix };
+
+	std::visit(visitor, expr->expr);
+}
+
+void PrintInstruction(const Instruction& ins, const std::string& prefix, bool is_last) {
+	struct Visitor {
+		std::string prefix;
+		bool is_last;
+		void operator()(const TACBinop& binop) const {
+			std::string op_str = BinaryOpToString(binop.op);
+			std::string text = fmt::format("{}TACBinop{} ({}{}{})", COL_STMT, COL_RESET, COL_OP, op_str, COL_RESET);
+			PrintBranch(prefix, is_last, text);
+
+			std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+
+			PrintBranch(next_prefix, false, fmt::format("{}dest:{}", COL_TYPE, COL_RESET));
+			std::string dest_prefix = next_prefix + "    ";
+			PrintIRNode(binop.dst, dest_prefix, true);
+
+			PrintBranch(next_prefix, false, fmt::format("{}left:{}", COL_TYPE, COL_RESET));
+			std::string left_prefix = next_prefix + "    ";
+			PrintIRNode(binop.left, left_prefix, true);
+
+			PrintBranch(next_prefix, true, fmt::format("{}right:{}", COL_TYPE, COL_RESET));
+			std::string right_prefix = next_prefix + "    ";
+			PrintIRNode(binop.right, right_prefix, true);
+		}
+		void operator()(const TACMove& move) const {
+			std::string text = fmt::format("{}TACMove{}", COL_STMT, COL_RESET);
+			PrintBranch(prefix, is_last, text);
+
+			std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+
+			PrintBranch(next_prefix, false, fmt::format("{}dst:{}", COL_TYPE, COL_RESET));
+			std::string dst_prefix = next_prefix + "    ";
+			PrintIRNode(move.dst, dst_prefix, true);
+
+			PrintBranch(next_prefix, true, fmt::format("{}src:{}", COL_TYPE, COL_RESET));
+			std::string src_prefix = next_prefix + "    ";
+			PrintIRNode(move.src, src_prefix, true);
+		}
+		void operator()(const TACMoveMem& moveMem) const {
+			std::string text = fmt::format("{}TACMoveMem{}", COL_STMT, COL_RESET);
+			PrintBranch(prefix, is_last, text);
+
+			std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+
+			PrintBranch(next_prefix, false, fmt::format("{}dst:{}", COL_TYPE, COL_RESET));
+			std::string dst_prefix = next_prefix + "    ";
+			PrintIRNode(moveMem.dst, dst_prefix, true);
+
+			PrintBranch(next_prefix, true, fmt::format("{}src:{}", COL_TYPE, COL_RESET));
+			std::string src_prefix = next_prefix + "    ";
+			PrintIRNode(moveMem.src, src_prefix, true);
+		}
+		void operator()(const TACLoad& load) const {
+			std::string text = fmt::format("{}TACLoad{}", COL_STMT, COL_RESET);
+			PrintBranch(prefix, is_last, text);
+
+			std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+
+			PrintBranch(next_prefix, false, fmt::format("{}dst:{}", COL_TYPE, COL_RESET));
+			std::string dst_prefix = next_prefix + "    ";
+			PrintIRNode(load.dst, dst_prefix, true);
+
+			PrintBranch(next_prefix, true, fmt::format("{}src:{}", COL_TYPE, COL_RESET));
+			std::string src_prefix = next_prefix + "    ";
+			PrintIRNode(load.src, src_prefix, true);
+		}
+		void operator()(const TACAddressOf& addr) const {
+			std::string text = fmt::format("{}TACAddressOf{}", COL_STMT, COL_RESET);
+			PrintBranch(prefix, is_last, text);
+
+			std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+
+			PrintBranch(next_prefix, false, fmt::format("{}dst:{}", COL_TYPE, COL_RESET));
+			std::string dst_prefix = next_prefix + "    ";
+			PrintIRNode(addr.dst, dst_prefix, true);
+
+			PrintBranch(next_prefix, true, fmt::format("{}object:{}", COL_TYPE, COL_RESET));
+			std::string obj_prefix = next_prefix + "    ";
+			PrintIRNode(addr.object, obj_prefix, true);
+		}
+		void operator()(const TACRelationalCJump& relCJump) const {
+			std::string op_str = RelationalOpToString(relCJump.op);
+			std::string text = fmt::format("{}TACRelationalCJump{} ({}{}{})", COL_STMT, COL_RESET, COL_OP, op_str, COL_RESET);
+			PrintBranch(prefix, is_last, text);
+
+			std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+			PrintIRNode(relCJump.left, next_prefix, false);
+			PrintIRNode(relCJump.right, next_prefix, false);
+			PrintBranch(next_prefix, true, fmt::format("false: {}", relCJump.labelFalse));
+		}
+		void operator()(const TACCJump& cjump) const {
+			std::string text = fmt::format("{}TACCJump{} (target: {}{}{})", COL_STMT, COL_RESET, COL_LIT, cjump.labelFalse, COL_RESET);
+			PrintBranch(prefix, is_last, text);
+
+			std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+			PrintIRNode(cjump.cond, next_prefix, true);
+		}
+		void operator()(const TACJump& jump) const {
+			std::string text = fmt::format("{}TACJump{} (target: {}{}{})", COL_STMT, COL_RESET, COL_LIT, jump.label, COL_RESET);
+			PrintBranch(prefix, is_last, text);
+		}
+		void operator()(const TACLabel& label) const {
+			std::string text = fmt::format("{}TACLabel{}: {}{}{}", COL_STMT, COL_RESET, COL_LIT, label.label, COL_RESET);
+			PrintBranch(prefix, is_last, text);
+		}
+		void operator()(const TACCall& call) const {
+			std::string text = fmt::format("{}TACCall{}", COL_STMT, COL_RESET);
+			PrintBranch(prefix, is_last, text);
+
+			std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+			if (call.dst) {
+				PrintIRNode(call.dst, next_prefix, false);
+			}
+			PrintIRNode(call.dst, next_prefix, call.args.empty());
+			for (size_t i = 0; i < call.args.size(); ++i) {
+				PrintIRNode(call.args[i], next_prefix, i == call.args.size() - 1);
+			}
+		}
+		void operator()(const TACReturn& ret) const {
+			std::string text = fmt::format("{}TACReturn{}", COL_STMT, COL_RESET);
+			PrintBranch(prefix, is_last, text);
+			std::string next_prefix = prefix + (is_last ? "     " : "│    ");
+
+			PrintBranch(next_prefix, false, fmt::format("{}dst:{}", COL_TYPE, COL_RESET));
+			std::string dst_prefix = next_prefix + "    ";
+			if (ret.value) {
+				PrintIRNode(ret.value, dst_prefix, true);
+			}
+		}
+	} visitor{ prefix, is_last };
+
+	std::visit(visitor, ins.expr);
+}
+
+void PrintFunctionTAC(const TAC& tac, bool is_last_func) {
+	std::string func_text = fmt::format("{}FunctionTAC{}: {}{}",
+		COL_RESET, COL_RESET, COL_LIT, tac.name);
+
+	PrintBranch("", is_last_func, func_text);
+
+	std::string func_prefix = is_last_func ? "     " : "│    ";
+	const auto& instructions = tac.instructions;
+
+	for (size_t j = 0; j < instructions.size(); ++j) {
+		bool is_last_inst = (j == instructions.size() - 1);
+		PrintInstruction(*instructions[j], func_prefix, is_last_inst);
+	}
+}
+
+void PrintProgramTAC(const TACProgram& program) {
+	fmt::print("{}[Three Address Code (TAC)]{}\n", COL_EXPR, COL_RESET);
+	for (size_t i = 0; i < program.functions.size(); ++i) {
+		bool last_func = (i == program.functions.size() - 1);
+		PrintFunctionTAC(program.functions[i], last_func);
+	}
 }

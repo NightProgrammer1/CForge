@@ -1,7 +1,7 @@
 #pragma once
-#include "types.h"
 #include <memory_resource>
 #include "fmt/core.h"
+#include "ASTTypes.h"
 class Parser
 {
 public:
@@ -44,13 +44,20 @@ private:
 		auto p = PeekToken();
 
 		if (p && p->type == TokenType::int_literal) {
-			return _allocator->new_object<NodeExpr>(NodeExprIntLit{ std::stoi(GetToken().value) }, QualifiedType::MakeInt());
+			return _allocator->new_object<NodeExpr>(NodeExprLiteral{ std::stoi(GetToken().value) }, QualifiedType{ Type::MakeInt() });
+		}
+		if (p && p->type == TokenType::float_literal) {
+			return _allocator->new_object<NodeExpr>(NodeExprLiteral{ std::stof(GetToken().value) }, QualifiedType{ Type::MakeFloat() });
+		}
+		if (p && p->type == TokenType::_char_literal) {
+			return _allocator->new_object<NodeExpr>(NodeExprLiteral{ std::stoi(GetToken().value) }, QualifiedType{ Type::MakeChar() });
 		}
 		if (Match(TokenType::false_literal)) {
-			return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ .value = false }, QualifiedType::MakeBool());
+			return _allocator->new_object<NodeExpr>(NodeExprLiteral{ .value = false }, QualifiedType{ Type::MakeBool() });
 		}
+		
 		if (Match(TokenType::true_literal)) {
-			return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ .value = true }, QualifiedType::MakeBool());
+            return _allocator->new_object<NodeExpr>(NodeExprLiteral{ .value = true }, QualifiedType{ Type::MakeBool() });
 		}
 		if (p && p->type == TokenType::_identifier) {
 			std::string identifier = GetToken().value;
@@ -69,8 +76,8 @@ private:
 		if (Match(TokenType::_NULL))
 		{
 			return _allocator->new_object<NodeExpr>(
-				NodeExprIntLit{ 0 },
-                QualifiedType::MakePointer(QualifiedType::MakeVoid(), Modifier{})
+				NodeExprLiteral{ 0 },
+                QualifiedType::MakePointer(QualifiedType{ Type::MakeVoid() }, Modifier{})
 			);
 		}
 		return nullptr;
@@ -481,32 +488,22 @@ private:
         return nullptr;
     }
 
-
-    QualifiedType ParseType(const Token& token)
-    {
-
-        switch (token.type)
-        {
-        case TokenType::_int:
-            return QualifiedType::MakeInt();
-            break;
-        case TokenType::_bool:
-            return QualifiedType::MakeBool();
-            break;
-        case TokenType::_void:
-            return QualifiedType::MakeVoid();
-            break;
-        default:
-            break;
-        }
-    }
-    bool IsTypeSpecifier(std::optional<Token> tok) {
-        if (!tok.has_value()) return false;
-        return tok->type == TokenType::_int ||
-            tok->type == TokenType::_bool || tok->type == TokenType::_const;
-        // tok->type == TokenType::_float;
-    }
-
+	bool IsTypeSpecifier(std::optional<Token> tok) {
+		if (!tok.has_value()) return false;
+		TokenType t = tok->type;
+        return t == TokenType::_int ||
+            t == TokenType::_char ||
+            t == TokenType::_float ||
+            t == TokenType::_double ||
+            t == TokenType::_short ||
+            t == TokenType::_bool ||
+            t == TokenType::_void ||
+            t == TokenType::_unsigned ||
+            t == TokenType::_signed ||
+            t == TokenType::_long ||
+            t == TokenType::_const ||
+            t == TokenType::_volatile;
+	}
     NodeExpr* ParseExpression()
     {
         auto lhs = ParseFactor();
@@ -714,7 +711,7 @@ private:
         }
         else {
             // Default to true
-            _while.condition = _allocator->new_object<NodeExpr>(NodeExprBoolLit{ true }, QualifiedType::MakeBool());
+            _while.condition = _allocator->new_object<NodeExpr>(NodeExprLiteral{ true }, QualifiedType{ Type::MakeBool() });
         }
         Consume(TokenType::semicolon);
         //update
@@ -820,55 +817,137 @@ private:
         return { parameter };
     }
 
-    bool IsFunctionDeclaration()
-    {
-        size_t offset = 0;
+	bool IsFunctionDeclaration()
+	{
+		size_t offset = 0;
 
-        // Skip leading storage/type qualifiers (const, static, volatile)
-        while (auto token = PeekToken(offset)) {
-            if (token->type == TokenType::_const ||
-                token->type == TokenType::_static ||
-                token->type == TokenType::_volatile) {
-                offset++;
-            }
-            else {
-                break;
-            }
-        }
+		// Skip leading storage/type qualifiers (const, static, volatile)
+		while (auto token = PeekToken(offset)) {
+			if (token->type == TokenType::_const ||
+				token->type == TokenType::_static ||
+				token->type == TokenType::_volatile) {
+				offset++;
+			}
+			else {
+				break;
+			}
+		}
 
-        // Expect a valid base type (primitive, void, or custom struct/typedef)
-        auto baseType = PeekToken(offset);
-        if (!baseType) return false;
+		size_t type_start_offset = offset;
+		bool has_builtin = false;
+		int int_count = 0, bool_count = 0, void_count = 0, char_count = 0;
+		int short_count = 0, long_count = 0, signed_count = 0, unsigned_count = 0;
+		int float_count = 0, double_count = 0; // Added float and double counters
 
-        bool isValidType = (baseType->type == TokenType::_int ||
-            baseType->type == TokenType::_bool ||
-            baseType->type == TokenType::_void ||
-            baseType->type == TokenType::_identifier); // For struct/typedef names
+		while (auto token = PeekToken(offset)) {
+			bool matched = true;
+			if (token->type == TokenType::_int) { int_count++; }
+			else if (token->type == TokenType::_bool) { bool_count++; }
+			else if (token->type == TokenType::_void) { void_count++; }
+			else if (token->type == TokenType::_char) { char_count++; }
+			else if (token->type == TokenType::_short) { short_count++; }
+			else if (token->type == TokenType::_long) { long_count++; }
+			else if (token->type == TokenType::_signed) { signed_count++; }
+			else if (token->type == TokenType::_unsigned) { unsigned_count++; }
+			else if (token->type == TokenType::_float) { float_count++; }     
+			else if (token->type == TokenType::_double) { double_count++; }   
+			else {
+				matched = false;
+			}
 
-        if (!isValidType) return false;
-        offset++;
+			if (matched) {
+				has_builtin = true;
+				offset++;
+			}
+			else {
+				break;
+			}
+		}
 
-        // Skip pointer asterisks (int*, int**, const char* const*)
-        while (auto token = PeekToken(offset)) {
-            if (token->type == TokenType::star || token->type == TokenType::_const) {
-                offset++;
-            }
-            else {
-                break;
-            }
-        }
+		// If no built-in keywords were found, check for a single custom type identifier
+		if (!has_builtin) {
+			auto token = PeekToken(offset);
+			if (token && token->type == TokenType::_identifier) {
+				size_t temp_offset = offset + 1;
+				while (auto pt = PeekToken(temp_offset)) {
+					if (pt->type == TokenType::star || pt->type == TokenType::_const) {
+						temp_offset++;
+					}
+					else {
+						break;
+					}
+				}
+				auto next_id = PeekToken(temp_offset);
+				auto after_next = PeekToken(temp_offset + 1);
 
-        // Expect the function identifier
-        auto funcName = PeekToken(offset);
-        if (!funcName || funcName->type != TokenType::_identifier) {
-            return false;
-        }
-        offset++;
+				if (next_id && next_id->type == TokenType::_identifier &&
+					after_next && after_next->type == TokenType::open_paren) {
+					// It's a valid custom return type. Consume the type identifier.
+					offset++;
+				}
+				else {
+					return false;
+				}
+			}
+			else {
+				std::cerr << "Invalid or missing return type in function declaration" << std::endl;
+				return false;
+			}
+		}
+		else {
+			// Validate built-in type duplicate rules and illegal combinations
+			if (int_count > 1 || bool_count > 1 || void_count > 1 || char_count > 1 ||
+				short_count > 1 || long_count > 2 || signed_count > 1 || unsigned_count > 1 ||
+				float_count > 1 || double_count > 1) {
+				std::cerr << "Malformed type specifier (duplicate types)" << std::endl;
+				return false;
+			}
+			if ((void_count > 0 || bool_count > 0 || float_count > 0) && (offset - type_start_offset > 1)) {
+				std::cerr << "Invalid compound type combination" << std::endl;
+				return false;
+			}
 
-        // Expect the open parenthesis '('
-        auto openParen = PeekToken(offset);
-        return openParen && openParen->type == TokenType::open_paren;
-    }
+			// Specific validations for float and double rules
+			if (float_count > 0) {
+				if (double_count > 0 || long_count > 0 || signed_count > 0 || unsigned_count > 0 ||
+					int_count > 0 || char_count > 0 || short_count > 0) {
+					std::cerr << "Invalid compound type combination with float" << std::endl;
+					return false;
+				}
+			}
+
+			if (double_count > 0) {
+				if (float_count > 0 || signed_count > 0 || unsigned_count > 0 ||
+					int_count > 0 || char_count > 0 || short_count > 0) {
+					std::cerr << "Invalid compound type combination with double" << std::endl;
+					return false;
+				}
+				// 'long double' is legal (long_count == 1), but 'long long double' is not.
+				if (long_count > 1) {
+					std::cerr << "Invalid long double specifier" << std::endl;
+					return false;
+				}
+			}
+		}
+
+		while (auto token = PeekToken(offset)) {
+			if (token->type == TokenType::star || token->type == TokenType::_const) {
+				offset++;
+			}
+			else {
+				break;
+			}
+		}
+
+		auto funcName = PeekToken(offset);
+		if (!funcName || funcName->type != TokenType::_identifier) {
+			return false;
+		}
+		offset++;
+
+		auto openParen = PeekToken(offset);
+		return openParen && openParen->type == TokenType::open_paren;
+	}
     std::optional<Token> TryConsume(TokenType type)
     {
         if (!PeekToken() || PeekToken()->type != type) {
@@ -991,21 +1070,98 @@ private:
     {
         QualifiedType base;
         bool type_found = false;
+		bool is_unsigned = false;
+		bool sign_specified = false;
 		while (PeekToken()) {
 			if (Match(TokenType::_int))
 			{
+
+				if (type_found)
+				{
+					if (base.base_type->kind == Type::Kind::Short)
+					{
+                        continue;
+					}
+					std::cerr << " Error: two or more data types in declaration specifiers" << std::endl;
+					exit(EXIT_FAILURE);
+				}
 				base.base_type = std::make_shared<Type>();
 				base.base_type->kind = Type::Kind::Int;
 				type_found = true;
 			}
+			else if (Match(TokenType::_short))
+			{
+				if (type_found)
+				{
+					if (base.base_type && base.base_type->kind == Type::Kind::Int)
+					{
+						// Allows "int short" (normalizes to short)
+						base.base_type->kind = Type::Kind::Short;
+						continue;
+					}
+					std::cerr << " Error: two or more data types in declaration specifiers" << std::endl;
+					exit(EXIT_FAILURE);
+				}
+				base.base_type = std::make_shared<Type>();
+				base.base_type->kind = Type::Kind::Short;
+				type_found = true;
+			}
+			else if (Match(TokenType::_char))
+			{
+				if (type_found)
+				{
+					std::cerr << " Error: two or more data types in declaration specifiers" << std::endl;
+					exit(EXIT_FAILURE);
+				}
+				base.base_type = std::make_shared<Type>();
+				base.base_type->kind = Type::Kind::Char;
+				
+				type_found = true;
+
+			}
 			else if (Match(TokenType::_bool))
 			{
+				if (type_found)
+				{
+					std::cerr << " Error: two or more data types in declaration specifiers" << std::endl;
+					exit(EXIT_FAILURE);
+				}
 				base.base_type = std::make_shared<Type>();
 				base.base_type->kind = Type::Kind::Bool;
+				
+				type_found = true;
+			}
+			else if (Match(TokenType::_float))
+			{
+				if (type_found)
+				{
+					std::cerr << " Error: two or more data types in declaration specifiers" << std::endl;
+					exit(EXIT_FAILURE);
+				}
+				base.base_type = std::make_shared<Type>();
+				base.base_type->kind = Type::Kind::Float;
+
+				type_found = true;
+			}
+			else if (Match(TokenType::_double))
+			{
+				if (type_found)
+				{
+					std::cerr << " Error: two or more data types in declaration specifiers" << std::endl;
+					exit(EXIT_FAILURE);
+				}
+				base.base_type = std::make_shared<Type>();
+				base.base_type->kind = Type::Kind::Double;
+
 				type_found = true;
 			}
 			else if (Match(TokenType::_void))
 			{
+				if (type_found)
+				{
+					std::cerr << " Error: two or more data types in declaration specifiers" << std::endl;
+					exit(EXIT_FAILURE);
+				}
 				base.base_type = std::make_shared<Type>();
 				base.base_type->kind = Type::Kind::Void;
 				type_found = true;
@@ -1018,6 +1174,26 @@ private:
 			{
 				base.mod.is_volatile = true;
 			}
+			else if (Match(TokenType::_signed))
+			{
+				if (sign_specified && is_unsigned)
+				{
+					std::cerr << " Error: both 'signed' and 'unsigned' specified" << std::endl;
+					exit(EXIT_FAILURE);
+				}
+				is_unsigned = false;
+				sign_specified = true;
+			}
+			else if (Match(TokenType::_unsigned))
+			{
+				if (sign_specified && !is_unsigned)
+				{
+					std::cerr << " Error: both 'signed' and 'unsigned' specified" << std::endl;
+					exit(EXIT_FAILURE);
+				}
+				is_unsigned = true;
+				sign_specified = true;
+			}
 			else
 			{
 				// Not a type specifier or qualifier, break out of type header parsing
@@ -1028,6 +1204,8 @@ private:
 		if (!type_found || !base.base_type) {
 			return std::nullopt;
 		}
+
+        base.base_type->is_signed = !is_unsigned;
         auto declarator = ParseDeclarator();
 
         auto type = BuildType(base, declarator.modifier.get());

@@ -394,26 +394,14 @@ private:
 
 	NodeExpr* ToNodeExpr(const ConstValue& value)
 	{
-
-
 		
 		if (!value.is_scalar()) {
 			std::cerr << "ICE: Cannot convert ConstValue to NodeExpr" << std::endl;
 			exit(EXIT_FAILURE);
 		}
-		return std::visit([this](ConstValue::Scalar&& Val)-> NodeExpr*
-			{
-				if (auto result = std::get_if<int>(&Val))
-				{
-					return _allocator->new_object<NodeExpr>(NodeExprIntLit{ *result });
-				}
-				else if (auto result = std::get_if<bool>(&Val))
-				{
-					return _allocator->new_object<NodeExpr>(NodeExprBoolLit{ *result });
-				}
-				return nullptr;
-			}
-		, value.get_scalar());
+		return std::visit([this](auto&& val) -> NodeExpr* {
+			return _allocator->new_object<NodeExpr>(NodeExprLiteral{ val });
+			}, value.get_scalar());
 	}
 	
 	ConstValue* GetVariable(const size_t ID)

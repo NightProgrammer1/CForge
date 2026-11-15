@@ -30,12 +30,13 @@ public:
         struct Visitor {
             std::vector<Scope>& env;
             ExprContext ctx;
-            std::optional<ConstValue> operator()(const NodeExprIntLit& lit) {
-                return ConstValue { lit.value };
-            }
-            std::optional<ConstValue> operator()(const NodeExprBoolLit& lit) {
-                return ConstValue{ lit.value };
-            }
+            const NodeExpr* expr;
+			std::optional<ConstValue> operator()(const NodeExprLiteral& lit) {
+				ConstValue::Scalar scalarVal = std::visit([](auto&& val) -> ConstValue::Scalar {
+					return val;
+					}, lit.value);
+				return ConstValue{ scalarVal };
+			}
             std::optional<ConstValue> operator()(const NodeExprVoid&) {
                 return {};
             }
@@ -51,11 +52,12 @@ public:
                 return std::nullopt;
             }
             std::optional<ConstValue> operator()(const NodeExprBinary& bin) {
-				return EvaluateBinOp(bin.op, bin.left, bin.right, env);
+				auto val = EvaluateBinOp(bin.op, bin.left, bin.right, env, expr->type.base_type);
+                return val;
 
             }
             std::optional<ConstValue> operator()(const NodeExprCompare& bin) {
-               auto result = EvaluateBinOp(bin.op, bin.left, bin.right, env);
+               auto result = EvaluateBinOp(bin.op, bin.left, bin.right, env, expr->type.base_type);
 
 
                return result;
@@ -287,7 +289,7 @@ public:
           
         };
 
-        return std::visit(Visitor{ env, ctx }, expr->var);
+        return std::visit(Visitor{ env, ctx, expr }, expr->var);
     }
 
     static EvalResult EvaluateBlock(const NodeBlock& block, std::vector<Scope>& env) {
@@ -520,11 +522,12 @@ private:
 			}
 			}, rhs.get_scalar());
 	}
-	static std::optional<ConstValue> EvaluateBinOp(TokenType op, const NodeExpr* lhsExpr, const NodeExpr* rhsExpr, std::vector<Scope>& env)
+	static std::optional<ConstValue> EvaluateBinOp(TokenType op, const NodeExpr* lhsExpr, const NodeExpr* rhsExpr, std::vector<Scope>& env, const std::shared_ptr<Type>& commonType)
 	{
 
 		auto lhsVal = EvaluateExpr(lhsExpr, env);
 		auto rhsVal = EvaluateExpr(rhsExpr, env);
+
 		if (!lhsVal || !rhsVal) return std::nullopt;
 		auto is_pointer_or_array = [](const ConstValue& val) {
 			return val.is_pointer() || val.is_array();
@@ -572,42 +575,50 @@ private:
 			return std::nullopt;
 		}
 
-		return std::visit([op](const auto& L, const auto& R) -> std::optional<ConstValue> {
-			using CommonType = std::common_type_t<
-				std::decay_t<decltype(L)>,
-				std::decay_t<decltype(R)>
-			>;
-			auto l_promoted = static_cast<CommonType>(L);
-			auto r_promoted = static_cast<CommonType>(R);
+		// Determine the target common type
+		if (!commonType) return std::nullopt;
 
-			switch (op) {
-			case TokenType::plus:
-				return ConstValue{ ConstValue::Scalar{ l_promoted + r_promoted } };
-			case TokenType::sub:
-				return ConstValue{ ConstValue::Scalar{ l_promoted - r_promoted } };
-			case TokenType::star:
-				return ConstValue{ ConstValue::Scalar{ l_promoted * r_promoted } };
-			case TokenType::div:
-				if (r_promoted == 0) return std::nullopt;
-				return ConstValue{ ConstValue::Scalar{ l_promoted / r_promoted } };
-			case TokenType::less:
-				return ConstValue{ ConstValue::Scalar{ l_promoted < r_promoted } };
-			case TokenType::less_equal:
-				return ConstValue{ ConstValue::Scalar{ l_promoted <= r_promoted } };
-			case TokenType::greater:
-				return ConstValue{ ConstValue::Scalar{ l_promoted > r_promoted } };
-			case TokenType::greater_equal:
-				return ConstValue{ ConstValue::Scalar{ l_promoted >= r_promoted } };
-			case TokenType::equal_equal:
-				return ConstValue{ ConstValue::Scalar{ l_promoted == r_promoted } };
-			case TokenType::not_equal:
-				return ConstValue{ ConstValue::Scalar{ l_promoted != r_promoted } };
-			case TokenType::_and:
-				return ConstValue{ ConstValue::Scalar{ l_promoted && r_promoted } };
-			default:
+		ConstValue::Scalar l_promoted = ConstValue::cast_to_type(lhsVal->get_scalar(), commonType);
+		ConstValue::Scalar r_promoted = ConstValue::cast_to_type(rhsVal->get_scalar(), commonType);
+
+		return std::visit([op](auto&& l, auto&& r) -> std::optional<ConstValue> {
+			using CommonPrimitive = std::decay_t<decltype(l)>;
+
+			// Ensure both sides ended up with the exact same primitive type after casting
+			if constexpr (!std::is_same_v<CommonPrimitive, std::decay_t<decltype(r)>>) {
 				return std::nullopt;
 			}
-			}, lhsVal->get_scalar(), rhsVal->get_scalar());
+			else {
+				switch (op) {
+				case TokenType::plus:
+					return ConstValue{ ConstValue::Scalar{ static_cast<CommonPrimitive>(l + r) } };
+				case TokenType::sub:
+					return ConstValue{ ConstValue::Scalar{ static_cast<CommonPrimitive>(l - r) } };
+				case TokenType::star:
+					return ConstValue{ ConstValue::Scalar{ static_cast<CommonPrimitive>(l * r) } };
+				case TokenType::div:
+					if (r == 0) return std::nullopt;
+					return ConstValue{ ConstValue::Scalar{ static_cast<CommonPrimitive>(l / r) } };
+				case TokenType::less:
+					return ConstValue{ ConstValue::Scalar{ l < r } };
+				case TokenType::less_equal:
+					return ConstValue{ ConstValue::Scalar{ l <= r } };
+				case TokenType::greater:
+					return ConstValue{ ConstValue::Scalar{ l > r } };
+				case TokenType::greater_equal:
+					return ConstValue{ ConstValue::Scalar{ l >= r } };
+				case TokenType::equal_equal:
+					return ConstValue{ ConstValue::Scalar{ l == r } };
+				case TokenType::not_equal:
+					return ConstValue{ ConstValue::Scalar{ l != r } };
+				case TokenType::_and:
+					return ConstValue{ ConstValue::Scalar{ static_cast<bool>(l && r) } };
+				default:
+					return std::nullopt;
+				}
+			}
+			}, l_promoted, r_promoted);
+  
 	}
     static void SetVariableValue(size_t ID, ConstValue&& value, std::vector<Scope>& constants)
     {

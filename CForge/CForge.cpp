@@ -116,7 +116,7 @@ int main(int argc, char* argv[])
 	}
 
 	bool enable_profiling = false;
-	bool enable_optimization = true;
+	bool enable_optimization = false;
 
 	// Scan arguments for debug/optimization flags
 	for (int i = 1; i < argc; ++i) {
@@ -186,6 +186,16 @@ int main(int argc, char* argv[])
 		TACLowering tac(ir, genericAlloc);
 		auto tacInstructions = tac.Lower();
 
+
+		// --- CHECK FOR --print-tac ---
+		for (int i = 1; i < argc; ++i) {
+			if (std::string(argv[i]) == "--print-tac") {
+				PrintProgramTAC(tacInstructions);
+				std::cout << std::endl;
+				return 0;
+			}
+		}
+		
 		BasicBlockBuilder builder(tacInstructions, arena);
 		auto cfg = builder.Create();
 
