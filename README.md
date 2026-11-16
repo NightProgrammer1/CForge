@@ -22,7 +22,7 @@
 
 * **Global variables**
 
-* **Primitives:** Core signed & const integers (`int, short, char, long, longlong`)
+* **Primitives:** Core signed, unsigned & const integers (`int, short, char, long, longlong`)
 
   * **Pointers:** Full pointer arithmetic, pointer subtraction, and dereferencing
 
@@ -46,11 +46,33 @@
 
 ### Source Code Example
 
-![Code-ShowCase.png](Images/Code-ShowCase.png)
+````c
+int add(int a, int b) {
+    return a + b;
+}
+
+int main() {
+    // Stack-allocated array & indexing
+    int arr[2];
+    arr[0] = 10;
+    arr[1] = 20;
+
+    // Function call & basic arithmetic
+    int res = add(arr[0], arr[1]);
+
+    // Conditional branching (if statement)
+    if (res > 25) {
+        res = res + 5;
+    }
+
+    // Expected Exit Code: (10 + 20) + 5 = 35
+    return res;
+}
+````
 
 ### AST Representation
 
-![AST Representation](Images/ast_representation.png)
+![demo.gif](Images/demo.gif)
 
 ---
 
@@ -71,7 +93,7 @@ cf input.c
 cf input.c -o custom_output
 # Print the generated Abstract Syntax Tree (AST) and exit early
 cf input.c --print-ast
-# Print the generated Three code address (TAC) and exit early
+# Print the generated Three code address(TAC), IR Lowered Tree and exit early
 cf input.c --print-tac
 # Print the generated x86-64 assembly during compilation
 cf input.c --print-assembly

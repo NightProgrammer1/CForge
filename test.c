@@ -1,18 +1,21 @@
+int add(int a, int b) {
+	return a + b;
+}
+
 int main() {
-	int i = 0;
-	int count = 0;
+	// Stack-allocated array & indexing
+	int arr[2];
+	arr[0] = 10;
+	arr[1] = 20;
 
-	// Infinite-style loop with internal break condition
-	for (;;) {
-		if (i >= 5) {
-			break;
-		}
-		count = count + 1;
-		i = i + 1;
+	// Function call & basic arithmetic
+	int res = add(arr[0], arr[1]);
+
+	// Conditional branching (if statement)
+	if (res > 25) {
+		res = res + 5;
 	}
 
-	if (count == 5) {
-		return 10; // should return here
-	}
-	return 1;
+	// Expected Exit Code: (10 + 20) + 5 = 35
+	return res;
 }

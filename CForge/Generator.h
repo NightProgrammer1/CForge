@@ -577,13 +577,8 @@ private:
 
 			std::string operator()(const ImmediateOperand& imm) {
 				// Format immediate values
-				if (std::holds_alternative<int>(imm.value)) {
-					return std::to_string(std::get<int>(imm.value));
-				}
-				else if (std::holds_alternative<size_t>(imm.value)) {
-					return std::to_string(std::get<size_t>(imm.value));
-				}
-				return "0";
+
+				return std::visit([](auto&& value) { return std::to_string(value); }, imm.value);
 			}
 
 			std::string operator()(const StackSlotOperand& slot) {

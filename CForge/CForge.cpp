@@ -110,13 +110,14 @@ int main(int argc, char* argv[])
 			<< "  -o <file>          Specify the output binary filename\n"
 			<< "  -g, --debug        Enable compiler performance profiling & timers\n"
 			<< "  --print-ast        Print the Abstract Syntax Tree (AST) and exit\n"
+			<< "  --print-tac        Print the IR Lowered Tree (TAC) and exit\n"
 			<< "  --print-assembly   Print the generated x86_64 assembly code\n"
 			<< "  -O0                Disable optimization passes\n";
 		exit(EXIT_FAILURE);
 	}
 
 	bool enable_profiling = false;
-	bool enable_optimization = false;
+	bool enable_optimization = true;
 
 	// Scan arguments for debug/optimization flags
 	for (int i = 1; i < argc; ++i) {
